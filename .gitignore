@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# .gitignore  –  POM_analysis
+# ---------------------------------------------------------------------------
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.eggs/
+*.egg-info/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# Data — never commit large binaries, raw data, or processed outputs
+# ---------------------------------------------------------------------------
+# Raw model outputs (GrADS binary + descriptor)
+*.gra
+*.ctl
+
+# NetCDF files
+*.nc
+*.nc4
+
+# Raw GESLA data (ZIP archive and extracted station files)
+data/gesla/
+data/raw_links/
+
+# Processed / extracted data (reproducible from scripts)
+data/processed/
+
+# SurgeMIP station list is a lightweight CSV — versioned intentionally.
+# Add a negation here if you want to keep it:
+# !data/SurgeMIP_files/SurgeMIP_stnlist.csv
+
+# Figures (reproducible from scripts)
+figures/
+
+# Results (reproducible from scripts)
+results/
+
+# ---------------------------------------------------------------------------
+# OS / editor artefacts
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---------------------------------------------------------------------------
+# Conda / Python environments
+# ---------------------------------------------------------------------------
+*.conda
+.conda/
+.env
+env/
+venv/
+.venv/
+
+# ---------------------------------------------------------------------------
+# Logs and temporary files
+# ---------------------------------------------------------------------------
+*.log
+*.out
+*.tmp
+*.bak
