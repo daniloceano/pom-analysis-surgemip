@@ -156,8 +156,8 @@ All settings live in [`config/settings.py`](config/settings.py).
 
 ## Authors
 
-- **Danilo C. S.** — analysis, scripts
-- **Ricardo M.** — POM model runs, raw data
+- **D. C. de Souza** — analysis, scripts
+- **R. Camargo** — POM model runs, raw data
 
 Part of the **SurgeMIP** inter-comparison project for storm-surge models.
 

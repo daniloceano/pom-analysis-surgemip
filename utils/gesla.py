@@ -206,8 +206,18 @@ def find_station_in_zip(
 
 def _find_stem_in_namelist(stem: str, namelist: list[str]) -> Optional[str]:
     """
-    Find an entry in a ZIP namelist whose filename stem matches *stem*
-    (case-insensitive).  Returns the matching entry or ``None``.
+    Find the best matching entry in a ZIP namelist for a given station stem.
+
+    GESLA-4 ZIP archives append quality/type suffixes to filenames
+    (e.g. ``san_francisco_ca-551a-usa-uhslc_rq``).  The station list stores
+    only the base name without suffix.  This function finds the best match by:
+
+    1. Exact match (stem == entry name, case-insensitive).
+    2. Prefix match: entry name starts with ``stem + "_"`` (accounts for
+       GESLA-4 suffixes).
+    3. When multiple variants exist (e.g. ``_rq`` AND ``_fd``), the highest-
+       quality variant is returned according to the priority list:
+       ``_rq`` > ``_fd`` > ``_hist`` > (other suffixes)
 
     Parameters
     ----------
@@ -217,11 +227,34 @@ def _find_stem_in_namelist(stem: str, namelist: list[str]) -> Optional[str]:
     namelist : list[str]
         Output of ``zipfile.ZipFile.namelist()``.
     """
+    # Quality suffix priority (higher index = lower preference)
+    _SUFFIX_PRIORITY: dict[str, int] = {
+        "_rq":   0,   # research quality — highest priority
+        "_fd":   1,   # full dataset
+        "_hist": 2,   # historical
+    }
+
     stem_lower = stem.lower()
+    prefix     = stem_lower + "_"
+    candidates: list[tuple[int, str]] = []  # (priority, entry)
+
     for name in namelist:
-        if pathlib.Path(name).stem.lower() == stem_lower:
+        entry_stem = pathlib.Path(name).stem.lower()
+        if entry_stem == stem_lower:
+            # Exact match — best possible
             return name
-    return None
+        if entry_stem.startswith(prefix):
+            # Prefix match: extract the suffix portion
+            suffix = entry_stem[len(stem_lower):]   # e.g. "_rq"
+            priority = _SUFFIX_PRIORITY.get(suffix, 99)
+            candidates.append((priority, name))
+
+    if not candidates:
+        return None
+
+    # Return the highest-priority (lowest priority number) match
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
 
 
 # ---------------------------------------------------------------------------
