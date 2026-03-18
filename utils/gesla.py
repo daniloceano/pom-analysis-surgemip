@@ -249,12 +249,32 @@ def _find_stem_in_namelist(stem: str, namelist: list[str]) -> Optional[str]:
             priority = _SUFFIX_PRIORITY.get(suffix, 99)
             candidates.append((priority, name))
 
-    if not candidates:
+    if candidates:
+        # Return the highest-priority (lowest priority number) match
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
+    # Fallback: underscore-normalised comparison.
+    # Some GESLA ZIP files omit or add underscores vs the SurgeMIP station list
+    # (e.g. "steele_ptstuart" in the ZIP vs "steele_pt_stuart" in the list).
+    stem_nound  = stem_lower.replace("_", "")
+    prefix_nound = stem_nound + "_"
+    fuzzy_candidates: list[tuple[int, str]] = []
+    for name in namelist:
+        entry_stem = pathlib.Path(name).stem.lower()
+        entry_nound = entry_stem.replace("_", "")
+        if entry_nound == stem_nound:
+            return name
+        if entry_nound.startswith(prefix_nound):
+            suffix_raw = entry_stem[len(stem_lower):]
+            priority = _SUFFIX_PRIORITY.get(suffix_raw, 99)
+            fuzzy_candidates.append((priority, name))
+
+    if not fuzzy_candidates:
         return None
 
-    # Return the highest-priority (lowest priority number) match
-    candidates.sort(key=lambda x: x[0])
-    return candidates[0][1]
+    fuzzy_candidates.sort(key=lambda x: x[0])
+    return fuzzy_candidates[0][1]
 
 
 # ---------------------------------------------------------------------------

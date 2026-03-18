@@ -82,3 +82,27 @@ Summary of station–grid-point pairings.
 Final comparison CSV (one per station).  Columns are the union of the
 observation and model-TS schemas above.  See [`scripts/README.md`](../scripts/README.md)
 for the full column list.
+
+---
+
+## Results (not versioned)
+
+| Path | Description | How to reproduce |
+|------|-------------|-----------------|
+| `results/validation/station_metrics.csv` | Per-station skill scores (RMSE, bias, r, …) | `scripts/validation/compute_station_metrics.py` |
+| `results/validation/station_metrics.parquet` | Same as above, Parquet format | same script |
+
+### `results/validation/station_metrics.csv`
+
+One row per station.  Key columns:
+
+| Column | Description |
+|--------|-------------|
+| `station_file_name` | GESLA station identifier |
+| `n_total` / `n_valid` | Total rows / QC-good paired samples |
+| `obs_mean_m`, `obs_std_m`, `obs_max_m` | Observed sea-level statistics |
+| `model_notide_mean_m`, `model_notide_std_m`, `model_notide_max_m` | Model notide statistics |
+| `rmse_notide` | RMSE of `model_eta_notide` vs observations [m] |
+| `bias_notide` | Mean bias model − obs, notide [m] |
+| `pearson_r_notide` | Pearson correlation, notide |
+| `*_tide` columns | Same metrics for the `model_eta_tide` target |

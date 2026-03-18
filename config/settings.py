@@ -212,6 +212,14 @@ GESLA_VS_MODEL_DIR    = VALIDATION_DIR / "gesla_vs_model"
 for _d in [GESLA_OBS_DIR, VALIDATION_DIR, GESLA_VS_MODEL_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
+# Results
+RESULTS_VALID_DIR       = RESULTS_DIR / "validation"
+STATION_METRICS_CSV     = RESULTS_VALID_DIR / "station_metrics.csv"
+STATION_METRICS_PARQUET = RESULTS_VALID_DIR / "station_metrics.parquet"
+
+for _d in [RESULTS_VALID_DIR]:
+    _d.mkdir(parents=True, exist_ok=True)
+
 # GESLA-4 dataset download URL
 # The dataset requires free registration at https://gesla787883612.wordpress.com/downloads/
 # After registering, set the URL (or path) via the environment variable below,

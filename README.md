@@ -63,10 +63,11 @@ POM_analysis/
 │   ├── grads_reader.py       ← GrADS CTL parser + memory-mapped binary reader
 │   └── gesla.py              ← GESLA-4 station-list parser + file parser
 ├── scripts/
+│   ├── pipeline/             ← end-to-end orchestrator (run_gesla_validation_pipeline.py)
 │   ├── exploratory/          ← dataset inspection and quick-look plots
 │   ├── preprocessing/        ← point extraction from model files
 │   ├── data/                 ← GESLA download and preparation
-│   └── validation/           ← model vs. observations comparison
+│   └── validation/           ← model vs. observations comparison + metrics + maps
 ├── data/
 │   ├── SurgeMIP_files/       ← SurgeMIP_stnlist.csv (versioned)
 │   ├── gesla/raw/            ← GESLA raw data (NOT versioned)
@@ -116,7 +117,21 @@ python scripts/preprocessing/extract_point.py --station santos
 python scripts/preprocessing/extract_point.py --lon -46.30 --lat -23.97 --label santos
 ```
 
-### GESLA validation pipeline (3 steps)
+### GESLA validation pipeline — one command
+
+```bash
+# Run the full pipeline (skips completed stages automatically):
+python scripts/pipeline/run_gesla_validation_pipeline.py --workers 50
+
+# First run requires GESLA-4 download URL:
+python scripts/pipeline/run_gesla_validation_pipeline.py \
+    --url "https://<your-download-link>/GESLA4.zip" --workers 50
+
+# Dry-run to preview what will happen:
+python scripts/pipeline/run_gesla_validation_pipeline.py --dry-run
+```
+
+Or run each step individually:
 
 ```bash
 # Step 1 — download GESLA-4 (free registration at gesla787883612.wordpress.com)
@@ -131,6 +146,12 @@ python scripts/validation/extract_model_for_gesla_stations.py
 
 # Step 3b — merge obs + model → final comparison CSVs
 python scripts/validation/build_comparison_csvs.py
+
+# Step 4 — compute per-station skill scores
+python scripts/validation/compute_station_metrics.py
+
+# Step 5 — generate station maps coloured by metric
+python scripts/validation/plot_station_metric_map.py --metric rmse_notide
 ```
 
 See [`scripts/README.md`](scripts/README.md) for full options.
@@ -149,6 +170,8 @@ All settings live in [`config/settings.py`](config/settings.py).
 | `GESLA_OBS_DIR` | Per-station GESLA observation CSVs |
 | `GESLA_VS_MODEL_DIR` | Final comparison CSVs |
 | `STATION_MODEL_INDEX` | Station–grid-point pairing table |
+| `STATION_METRICS_CSV` | Per-station skill scores (RMSE, bias, r, …) |
+| `RESULTS_VALID_DIR` | Parent directory for results/validation/ outputs |
 | `STATIONS` | Dict of reference tide-gauge locations |
 | `PLOT_STYLE` | Colormaps, figure sizes, DPI, map extents |
 

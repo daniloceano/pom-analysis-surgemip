@@ -303,8 +303,9 @@ def main() -> None:
 
     # ---- Determine which stations to process --------------------------------
     # Use the union of obs and model directories (not limited to station list)
-    obs_files   = {f.stem: f for f in obs_dir.glob("*.csv.gz")}   if obs_dir.exists()   else {}
-    model_files = {f.stem: f for f in model_dir.glob("*.csv.gz")} if model_dir.exists() else {}
+    # f.stem on "foo.csv.gz" returns "foo.csv" — use with_suffix("").stem to strip both
+    obs_files   = {f.with_suffix("").stem: f for f in obs_dir.glob("*.csv.gz")}   if obs_dir.exists()   else {}
+    model_files = {f.with_suffix("").stem: f for f in model_dir.glob("*.csv.gz")} if model_dir.exists() else {}
 
     if args.station:
         file_names = [args.station]

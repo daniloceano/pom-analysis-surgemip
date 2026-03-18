@@ -124,3 +124,42 @@ compression via pandas `to_csv(compression='gzip')`).
 This approximates the **astronomical tidal signal** as simulated by the model.
 The `eta_notide` field is the **meteorological sea level** (storm surge +
 mean sea level).  See `SURGMIP_META["surge_definition"]` in `config/settings.py`.
+
+---
+
+## 10. Pipeline parallelisation strategy (Stage 2–4)
+
+`ThreadPoolExecutor` is used (not `ProcessPoolExecutor`) for the following
+reasons:
+
+* **Stage 2 (prepare observations):** Each station reads one small text file
+  from disk.  Purely I/O-bound; no shared mutable state.  Threads are
+  sufficient and avoid fork/spawn overhead.
+
+* **Stage 3 (model extraction):** Two `GrADSReader` instances backed by
+  `numpy.memmap` (read-only memory-mapped files) are opened once in the main
+  thread and shared across all worker threads.  `numpy.memmap` is safe for
+  concurrent reads — the OS memory-mapping layer serialises page faults
+  internally.  Forking 50 processes each opening the ~138 GB files would add
+  significant start-up latency and OS overhead.
+
+* **Stage 4 (merge obs + model):** Reads and writes independent per-station
+  `.csv.gz` files.  Purely I/O-bound.
+
+The default worker count is **50**, overridable via `--workers`.
+
+---
+
+## 11. Validation metrics
+
+Per-station skill scores are computed on the intersection of good-quality
+GESLA observations (`gesla_qc_flag == 1` AND `gesla_use_flag == 1`) and
+non-NaN model values.  Stations with fewer than 10 valid paired samples
+receive NaN metrics but are still included in the output table.
+
+Two model targets are assessed independently:
+  * `model_eta_notide_m` — meteorological sea level (storm surge signal)
+  * `model_eta_tide_m`   — full sea level including astronomical tides
+
+Metrics: RMSE, mean bias (model − obs), Pearson r, observed/model mean,
+standard deviation, and max absolute value.
