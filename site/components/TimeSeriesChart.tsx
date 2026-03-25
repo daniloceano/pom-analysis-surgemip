@@ -4,6 +4,17 @@
  * TimeSeriesChart.tsx
  * Plotly.js time series for the selected GESLA station.
  * Loaded via dynamic({ ssr: false }) in page.tsx.
+ *
+ * Visualisation logic per observation treatment:
+ *
+ *   raw            → obs (with tide) + POM tide + POM no-tide (reference)
+ *                    Descriptive — both signals include astronomical tide.
+ *
+ *   godin_filter   → obs (Godin-detided) + POM no-tide
+ *                    Surge validation — tide removed from obs.
+ *
+ *   minus_fes_tide → obs (FES2022-detided) + POM no-tide
+ *                    Surge validation — tide removed from obs.
  */
 
 import { useEffect, useState } from "react";
@@ -14,16 +25,25 @@ interface Props {
   mode: ValidationMode;
 }
 
-const MODE_PATH: Record<ValidationMode, string> = {
-  raw:            "raw",
-  godin_filter:   "godin_filter",
-  minus_fes_tide: "minus_fes_tide",
+// Trace labels per observation treatment
+const TRACE_OBS: Record<ValidationMode, string> = {
+  raw:            "GESLA obs (raw, with tide)",
+  godin_filter:   "GESLA obs (Godin-detided)",
+  minus_fes_tide: "GESLA obs (FES2022-detided)",
 };
 
-const MODE_LABEL: Record<ValidationMode, string> = {
-  raw:            "Raw (tidal)",
-  godin_filter:   "Godin de-tided",
-  minus_fes_tide: "FES2022 de-tided",
+const TRACE_NOTIDE: Record<ValidationMode, string> = {
+  raw:            "POM no-tide (surge, reference)",
+  godin_filter:   "POM no-tide (surge)",
+  minus_fes_tide: "POM no-tide (surge)",
+};
+
+const TRACE_TIDE = "POM tide (surge + tide)";
+
+const MODE_SUBTITLE: Record<ValidationMode, string> = {
+  raw:            "descriptive",
+  godin_filter:   "surge validation · Godin-detided",
+  minus_fes_tide: "surge validation · FES2022-detided",
 };
 
 export default function TimeSeriesChart({ station, mode }: Props) {
@@ -38,8 +58,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     }
     setLoading(true);
     setErr(null);
-    const path = MODE_PATH[mode];
-    fetch(`/data/ts/${path}/${station.id}.json`)
+    fetch(`/data/ts/${mode}/${station.id}.json`)
       .then((r) => {
         if (!r.ok) throw new Error(`No time series for ${station.id} / ${mode}`);
         return r.json();
@@ -74,7 +93,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     return (
       <div className="flex items-center justify-center h-full px-4">
         <p className="text-xs text-slate-400 italic text-center">
-          {err ?? "No time series available for this station / mode."}
+          {err ?? "No time series available for this station / treatment."}
         </p>
       </div>
     );
@@ -85,7 +104,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     {
       x: tsData.dates,
       y: tsData.obs,
-      name: "Observed",
+      name: TRACE_OBS[mode],
       type: "scatter",
       mode: "lines",
       line: { color: "#374151", width: 1.5 },
@@ -97,19 +116,25 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     traces.push({
       x: tsData.dates,
       y: tsData.notide,
-      name: "Model surge",
+      name: TRACE_NOTIDE[mode],
       type: "scatter",
       mode: "lines",
-      line: { color: "#6366f1", width: 1.5, dash: "dot" },
+      // In raw mode, no-tide is shown as a light reference trace (not a direct comparison)
+      line: {
+        color: mode === "raw" ? "#94a3b8" : "#6366f1",
+        width: mode === "raw" ? 1.0 : 1.5,
+        dash: mode === "raw" ? "dot" : "dot",
+      },
       connectgaps: false,
     });
   }
 
+  // POM tide trace: only available in raw mode JSON
   if (tsData.tide) {
     traces.push({
       x: tsData.dates,
       y: tsData.tide,
-      name: "Model tide",
+      name: TRACE_TIDE,
       type: "scatter",
       mode: "lines",
       line: { color: "#0891b2", width: 1.5, dash: "dash" },
@@ -117,7 +142,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     });
   }
 
-  const title = `${station.name} · ${MODE_LABEL[mode]} (daily mean, 2013–2018)`;
+  const title = `${station.name} · daily mean 2013–2018 (${MODE_SUBTITLE[mode]})`;
 
   const layout = {
     title: { text: title, font: { size: 11, color: "#374151" }, x: 0.01, xanchor: "left" },
@@ -154,10 +179,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     },
   };
 
-  // Lazy-import Plotly to avoid bundling it in the SSR chunk
-  return (
-    <PlotlyWrapper traces={traces} layout={layout} config={config} />
-  );
+  return <PlotlyWrapper traces={traces} layout={layout} config={config} />;
 }
 
 // Lazy Plotly wrapper — imports plotly only when rendering

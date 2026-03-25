@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import type { Station, StationData, ValidationMode, MetricKey } from "@/types/data";
-import { METRIC_DEFS } from "@/types/data";
+import { METRIC_DEFS, DEFAULT_METRIC } from "@/types/data";
 import StationCard from "@/components/StationCard";
 import ControlPanel from "@/components/ControlPanel";
 
@@ -26,9 +26,21 @@ const TimeSeriesChart = dynamic(() => import("@/components/TimeSeriesChart"), {
   ),
 });
 
-// Default mode and metric
-const DEFAULT_MODE: ValidationMode = "raw";
-const DEFAULT_METRIC: MetricKey = "rmse_notide";
+const DEFAULT_MODE: ValidationMode = "godin_filter";
+
+// Labels for the observation treatment selector
+const OBS_TREATMENT_LABELS: Record<ValidationMode, { short: string; full: string }> = {
+  raw:            { short: "Raw",     full: "No treatment — obs includes tidal signal" },
+  godin_filter:   { short: "Godin",   full: "Godin filter (1972) — tidal signal removed" },
+  minus_fes_tide: { short: "FES2022", full: "FES2022 harmonics subtracted — tidal signal removed" },
+};
+
+// Visual tags distinguishing descriptive from validation contexts
+const MODE_TAG: Record<ValidationMode, { text: string; className: string }> = {
+  raw:            { text: "Descriptive",     className: "bg-amber-100 text-amber-800" },
+  godin_filter:   { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
+  minus_fes_tide: { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
+};
 
 export default function Home() {
   const [stationData, setStationData] = useState<StationData | null>(null);
@@ -37,7 +49,7 @@ export default function Home() {
 
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
   const [mode, setMode] = useState<ValidationMode>(DEFAULT_MODE);
-  const [metric, setMetric] = useState<MetricKey>(DEFAULT_METRIC);
+  const [metric, setMetric] = useState<MetricKey>(DEFAULT_METRIC[DEFAULT_MODE]);
 
   // Load station metrics manifest on mount
   useEffect(() => {
@@ -56,19 +68,22 @@ export default function Home() {
       });
   }, []);
 
-  // When mode changes, verify the current metric is available; reset if not
-  useEffect(() => {
+  // When obs treatment changes, reset to the appropriate default metric for that mode
+  const handleModeChange = useCallback((newMode: ValidationMode) => {
+    setMode(newMode);
     const def = METRIC_DEFS[metric];
-    if (!def.modesAvailable.includes(mode)) {
-      setMetric("rmse_notide");
+    if (!def.modesAvailable.includes(newMode)) {
+      setMetric(DEFAULT_METRIC[newMode]);
     }
-  }, [mode, metric]);
+  }, [metric]);
 
   const handleSelectStation = useCallback((station: Station) => {
     setSelectedStation(station);
   }, []);
 
   const modesAvailable = stationData?.modes_available ?? ["raw"];
+
+  const tag = MODE_TAG[mode];
 
   return (
     <div className="flex flex-col h-full">
@@ -82,33 +97,39 @@ export default function Home() {
             Princeton Ocean Model · ERA5 forced · 2013–2018 · SurgeMIP
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400">Mode:</span>
-          <div className="flex gap-1">
-            {(["raw", "godin_filter", "minus_fes_tide"] as ValidationMode[]).map((m) => {
-              const labels: Record<ValidationMode, string> = {
-                raw: "Raw",
-                godin_filter: "Godin",
-                minus_fes_tide: "FES2022",
-              };
-              const available = modesAvailable.includes(m);
-              return (
-                <button
-                  key={m}
-                  disabled={!available}
-                  onClick={() => setMode(m)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors
-                    ${mode === m
-                      ? "bg-indigo-500 text-white"
-                      : available
-                        ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                        : "bg-slate-800 text-slate-600 cursor-not-allowed"
-                    }`}
-                >
-                  {labels[m]}
-                </button>
-              );
-            })}
+
+        <div className="flex items-center gap-3">
+          {/* Context tag */}
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tag.className}`}>
+            {tag.text}
+          </span>
+
+          {/* Observation treatment selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 whitespace-nowrap">Obs. treatment:</span>
+            <div className="flex gap-1">
+              {(["raw", "godin_filter", "minus_fes_tide"] as ValidationMode[]).map((m) => {
+                const available = modesAvailable.includes(m);
+                const lbl = OBS_TREATMENT_LABELS[m];
+                return (
+                  <button
+                    key={m}
+                    disabled={!available}
+                    onClick={() => handleModeChange(m)}
+                    title={lbl.full}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors
+                      ${mode === m
+                        ? "bg-indigo-500 text-white"
+                        : available
+                          ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          : "bg-slate-800 text-slate-600 cursor-not-allowed"
+                      }`}
+                  >
+                    {lbl.short}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </header>
@@ -133,9 +154,8 @@ export default function Home() {
       )}
       {!loading && !error && stationData && (
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* ── Left: Map ───────────────────────────────────────────────────── */}
+          {/* ── Left: Map + Time series ──────────────────────────────────────── */}
           <div className="flex flex-col flex-1 min-w-0">
-            {/* Map */}
             <div className="flex-1 min-h-0 relative">
               <StationMap
                 stations={stationData.stations}
@@ -145,7 +165,6 @@ export default function Home() {
                 onSelectStation={handleSelectStation}
               />
             </div>
-            {/* Time series (bottom of left panel) */}
             <div className="h-56 border-t border-slate-200 bg-white shrink-0">
               <TimeSeriesChart
                 station={selectedStation}

@@ -24,6 +24,25 @@ function MetricRow({ label, value, unit = "" }: { label: string; value: number |
   );
 }
 
+// Section header + context badge for each observation treatment
+const MODE_SECTION: Record<ValidationMode, { header: string; badge: string; badgeClass: string }> = {
+  raw: {
+    header: "Descriptive metrics",
+    badge: "obs with tide",
+    badgeClass: "bg-amber-100 text-amber-700",
+  },
+  godin_filter: {
+    header: "Surge validation metrics",
+    badge: "Godin-detided",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+  },
+  minus_fes_tide: {
+    header: "Surge validation metrics",
+    badge: "FES2022-detided",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+  },
+};
+
 export default function StationCard({ station, mode }: Props) {
   if (!station) {
     return (
@@ -34,14 +53,11 @@ export default function StationCard({ station, mode }: Props) {
   }
 
   const m: RawMetrics | undefined = station.metrics[mode];
-  const modeLabel: Record<ValidationMode, string> = {
-    raw: "Raw",
-    godin_filter: "Godin",
-    minus_fes_tide: "FES2022",
-  };
+  const section = MODE_SECTION[mode];
 
   return (
     <div className="p-4">
+      {/* Station identity */}
       <div className="mb-3">
         <p className="font-semibold text-slate-900 text-sm leading-tight">{station.name}</p>
         <p className="text-xs text-slate-500 mt-0.5">
@@ -59,30 +75,52 @@ export default function StationCard({ station, mode }: Props) {
 
       {!m ? (
         <p className="text-xs text-slate-400 italic">
-          No metrics for mode &quot;{modeLabel[mode]}&quot;.
+          No metrics available for this treatment.
         </p>
       ) : (
         <>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            {modeLabel[mode]} metrics
-          </p>
+          {/* Section header */}
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              {section.header}
+            </p>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${section.badgeClass}`}>
+              {section.badge}
+            </span>
+          </div>
+
           <table className="w-full">
             <tbody>
-              <MetricRow label="Valid samples"    value={m.n_valid} />
-              <MetricRow label="RMSE (surge)"     value={m.rmse_notide}       unit=" m" />
-              <MetricRow label="Bias (surge)"     value={m.bias_notide}       unit=" m" />
-              <MetricRow label="Pearson r"        value={m.pearson_r_notide} />
-              {mode === "raw" && (
+              <MetricRow label="Valid samples" value={m.n_valid} />
+
+              {mode === "raw" ? (
+                // Raw mode: show tidal comparison metrics (descriptive)
                 <>
-                  <MetricRow label="RMSE (tide)"  value={m.rmse_tide}         unit=" m" />
-                  <MetricRow label="Bias (tide)"  value={m.bias_tide}         unit=" m" />
-                  <MetricRow label="r (tide)"     value={m.pearson_r_tide} />
+                  <MetricRow label="RMSE — raw vs POM tide"  value={m.rmse_tide}       unit=" m" />
+                  <MetricRow label="Bias — raw vs POM tide"  value={m.bias_tide}       unit=" m" />
+                  <MetricRow label="Pearson r (tidal)"       value={m.pearson_r_tide} />
+                </>
+              ) : (
+                // Detided modes: show surge validation metrics
+                <>
+                  <MetricRow label="RMSE (surge)"            value={m.rmse_notide}      unit=" m" />
+                  <MetricRow label="Bias (surge)"            value={m.bias_notide}      unit=" m" />
+                  <MetricRow label="Pearson r (surge)"       value={m.pearson_r_notide} />
                 </>
               )}
-              <MetricRow label="Obs mean"         value={m.obs_mean_m}        unit=" m" />
-              <MetricRow label="Obs max |η|"      value={m.obs_max_m}         unit=" m" />
+
+              {/* Observation statistics */}
+              <MetricRow label="Obs mean" value={m.obs_mean_m} unit=" m" />
+              <MetricRow label="Obs max |η|" value={m.obs_max_m} unit=" m" />
             </tbody>
           </table>
+
+          {/* Note for raw mode to prevent misinterpretation */}
+          {mode === "raw" && (
+            <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 leading-relaxed">
+              Obs. mean and max include the tidal signal. Switch to Godin or FES2022 for surge-only statistics.
+            </p>
+          )}
         </>
       )}
     </div>
