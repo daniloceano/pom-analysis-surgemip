@@ -14,6 +14,7 @@ Python toolkit for reading, processing, and validating Princeton Ocean Model (PO
 | [`data/README.md`](data/README.md) | Data layout and what is/isn't versioned |
 | [`docs/decisions.md`](docs/decisions.md) | Key assumptions and design decisions |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Coding conventions and commit checklist |
+| [`site/README.md`](site/README.md) | Interactive validation website |
 
 ---
 
@@ -61,9 +62,12 @@ POM_analysis/
 ├── config/settings.py        ← ALL paths, constants, styles — edit here
 ├── utils/
 │   ├── grads_reader.py       ← GrADS CTL parser + memory-mapped binary reader
-│   └── gesla.py              ← GESLA-4 station-list parser + file parser
+│   ├── gesla.py              ← GESLA-4 station-list parser + file parser
+│   └── tidal_filters.py      ← Godin filter + FES2022 tide prediction
 ├── scripts/
-│   ├── pipeline/             ← end-to-end orchestrator (run_gesla_validation_pipeline.py)
+│   ├── pipeline/
+│   │   ├── run_gesla_validation_pipeline.py  ← one-command orchestrator
+│   │   └── prepare_site_data.py              ← generate JSON data for website
 │   ├── exploratory/          ← dataset inspection and quick-look plots
 │   ├── preprocessing/        ← point extraction from model files
 │   ├── data/                 ← GESLA download and preparation
@@ -72,10 +76,27 @@ POM_analysis/
 │   ├── SurgeMIP_files/       ← SurgeMIP_stnlist.csv (versioned)
 │   ├── gesla/raw/            ← GESLA raw data (NOT versioned)
 │   └── processed/            ← extracted CSVs (NOT versioned)
+│       ├── gesla/
+│       │   ├── observations/         ← raw GESLA obs CSVs
+│       │   ├── observations_godin/   ← Godin-filtered de-tided obs
+│       │   └── observations_fes/     ← FES2022-subtracted de-tided obs
+│       └── validation/
+│           ├── gesla_vs_model/       ← raw comparison CSVs
+│           ├── godin_filter/         ← Godin-mode comparison CSVs
+│           └── minus_fes_tide/       ← FES2022-mode comparison CSVs
+├── figures/
+│   └── validation/
+│       ├── raw/              ← station maps for raw validation
+│       ├── godin_filter/     ← station maps for Godin-filter validation
+│       └── minus_fes_tide/   ← station maps for FES2022 validation
+├── results/
+│   └── validation/
+│       ├── station_metrics.csv               ← raw mode per-station metrics
+│       ├── godin_filter/station_metrics.csv  ← Godin mode
+│       └── minus_fes_tide/station_metrics.csv ← FES2022 mode
+├── site/                     ← interactive validation website (Next.js)
 ├── docs/                     ← design decisions and notes
 ├── notebooks/                ← exploratory Jupyter notebooks
-├── figures/                  ← output figures (NOT versioned)
-├── results/                  ← numerical results (NOT versioned)
 ├── environment.yml
 ├── setup_env.sh
 ├── CONTRIBUTING.md
@@ -119,42 +140,59 @@ python scripts/preprocessing/extract_point.py --lon -46.30 --lat -23.97 --label 
 
 ### GESLA validation pipeline — one command
 
+Three validation modes are supported:
+
+| Mode | Description | Model target |
+|------|-------------|--------------|
+| `raw` | Raw tidal observations vs model | notide + tide |
+| `godin_filter` | Godin low-pass filter removes tides from obs | notide only |
+| `minus_fes_tide` | FES2022 predicted tide subtracted from obs | notide only |
+
 ```bash
-# Run the full pipeline (skips completed stages automatically):
+# Run all three modes end-to-end (skips completed stages automatically):
+python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --workers 50
+
+# Raw mode only (default):
 python scripts/pipeline/run_gesla_validation_pipeline.py --workers 50
 
 # First run requires GESLA-4 download URL:
 python scripts/pipeline/run_gesla_validation_pipeline.py \
-    --url "https://<your-download-link>/GESLA4.zip" --workers 50
+    --url "https://<your-download-link>/GESLA4.zip" --mode all --workers 50
 
 # Dry-run to preview what will happen:
-python scripts/pipeline/run_gesla_validation_pipeline.py --dry-run
+python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --dry-run
+
+# Force re-generate figures only:
+python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --force-maps
 ```
 
-Or run each step individually:
-
-```bash
-# Step 1 — download GESLA-4 (free registration at gesla787883612.wordpress.com)
-python scripts/data/download_gesla.py \
-    --url "https://<your-download-link>/GESLA4.zip" --extract
-
-# Step 2 — parse GESLA station files → per-station observation CSVs
-python scripts/data/prepare_gesla.py
-
-# Step 3a — extract model time series for every GESLA station
-python scripts/validation/extract_model_for_gesla_stations.py
-
-# Step 3b — merge obs + model → final comparison CSVs
-python scripts/validation/build_comparison_csvs.py
-
-# Step 4 — compute per-station skill scores
-python scripts/validation/compute_station_metrics.py
-
-# Step 5 — generate station maps coloured by metric
-python scripts/validation/plot_station_metric_map.py --metric rmse_notide
+Output locations:
+```
+figures/validation/raw/             ← station maps, raw validation
+figures/validation/godin_filter/    ← station maps, Godin de-tided
+figures/validation/minus_fes_tide/  ← station maps, FES2022 de-tided
+results/validation/station_metrics.csv
+results/validation/godin_filter/station_metrics.csv
+results/validation/minus_fes_tide/station_metrics.csv
 ```
 
 See [`scripts/README.md`](scripts/README.md) for full options.
+
+### Interactive validation website
+
+```bash
+# 1. Generate JSON data for the website (run after pipeline)
+python scripts/pipeline/prepare_site_data.py
+
+# 2. Run locally
+cd site && npm install && npm run dev
+# → open http://localhost:3000
+
+# 3. Deploy to Vercel
+cd site && npx vercel --prod
+```
+
+See [`site/README.md`](site/README.md) for full deployment instructions.
 
 ---
 

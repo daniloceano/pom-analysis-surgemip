@@ -5,12 +5,30 @@ One-command orchestrator for the full GESLA-4 / POM validation workflow.
 
 Stages
 ------
-  Stage 1 – Check / download / extract GESLA-4 data
-  Stage 2 – Prepare GESLA observation CSVs            (parallelised)
-  Stage 3 – Extract model time series for all stations (parallelised)
-  Stage 4 – Build observation-vs-model comparison CSVs (parallelised)
-  Stage 5 – Compute per-station validation metrics
-  Stage 6 – Generate station-map figures
+  Stage 1   – Check / download / extract GESLA-4 data
+  Stage 2   – Prepare GESLA observation CSVs            (parallelised)
+  Stage 3   – Extract model time series for all stations (parallelised)
+  Stage 3.5 – Apply tidal detiding to observations       (non-raw modes only)
+  Stage 4   – Build observation-vs-model comparison CSVs (parallelised, per mode)
+  Stage 5   – Compute per-station validation metrics     (per mode)
+  Stage 6   – Generate station-map figures               (per mode)
+
+Validation modes (--mode)
+-------------------------
+  raw            – Compare raw tidal observations vs model_eta_notide &
+                   model_eta_tide.  No detiding applied.
+  godin_filter   – Godin (1972) low-pass filter (24 h + 24 h + 25 h running
+                   means) removes astronomical tide from observations.
+                   De-tided obs compared only to model_eta_notide (storm
+                   surge; comparing against model_eta_tide would be
+                   physically inconsistent).
+  minus_fes_tide – FES2022 astronomical tide predicted at each station with
+                   eo-tides and subtracted from observations.  De-tided obs
+                   compared only to model_eta_notide.
+  all            – Run all three modes in sequence.
+
+Stages 1–3 always run (shared inputs across modes).  Stage 3.5 and Stages
+4–6 repeat for each selected mode.
 
 The pipeline is **idempotent**: every stage skips files that already exist
 unless the corresponding ``--force-*`` flag is passed.
@@ -37,21 +55,25 @@ Concurrency model
 
 Usage
 -----
-    # Run full pipeline (skip completed stages):
+    # Raw mode only (default — skip completed stages):
     python scripts/pipeline/run_gesla_validation_pipeline.py
 
-    # Run with 50 parallel workers (default):
-    python scripts/pipeline/run_gesla_validation_pipeline.py --workers 50
+    # All three validation modes:
+    python scripts/pipeline/run_gesla_validation_pipeline.py --mode all
+
+    # Specific modes only:
+    python scripts/pipeline/run_gesla_validation_pipeline.py \\
+        --mode godin_filter minus_fes_tide
+
+    # Force all stages from scratch (all modes):
+    python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --force-all
+
+    # Re-run detiding and downstream stages only:
+    python scripts/pipeline/run_gesla_validation_pipeline.py \\
+        --mode all --force-detide --force-build --force-metrics --force-maps
 
     # Dry-run (show what would be done, do nothing):
-    python scripts/pipeline/run_gesla_validation_pipeline.py --dry-run
-
-    # Force everything from scratch:
-    python scripts/pipeline/run_gesla_validation_pipeline.py --force-all
-
-    # Force only Stage 3 and later:
-    python scripts/pipeline/run_gesla_validation_pipeline.py \\
-        --force-extract --force-build --force-metrics --force-maps
+    python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --dry-run
 
     # Restrict to a time window (passed to stages 3 & 4):
     python scripts/pipeline/run_gesla_validation_pipeline.py \\
@@ -59,7 +81,7 @@ Usage
 
     # Restrict to a single station (useful for testing):
     python scripts/pipeline/run_gesla_validation_pipeline.py \\
-        --station san_francisco_ca-551a-usa-uhslc
+        --mode all --station santos-540a-bra-uhslc
 
 Environment variables
 ---------------------
@@ -89,10 +111,19 @@ from config.settings import (
     SURGEMIP_STNLIST,
     GESLA_RAW_DIR,
     GESLA_OBS_DIR,
+    GESLA_OBS_GODIN_DIR,
+    GESLA_OBS_FES_DIR,
     VALIDATION_DIR,
     GESLA_VS_MODEL_DIR,
+    VALID_GODIN_DIR,
+    VALID_FES_DIR,
     STATION_METRICS_CSV,
+    STATION_METRICS_GODIN_CSV,
+    STATION_METRICS_FES_CSV,
     FIG_VALID_DIR,
+    FIG_VALID_RAW_DIR,
+    FIG_VALID_GODIN_DIR,
+    FIG_VALID_FES_DIR,
 )
 from utils.gesla import load_station_list
 
@@ -106,8 +137,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MODEL_TS_DIR = VALIDATION_DIR / "model_ts"
-GESLA_STATIONS_DIR = GESLA_RAW_DIR / "stations"
+MODEL_TS_DIR       = VALIDATION_DIR / "model_ts"
+GESLA_STATIONS_DIR = GESLA_RAW_DIR  / "stations"
+
+# ---------------------------------------------------------------------------
+# Validation mode configuration
+# ---------------------------------------------------------------------------
+# Each entry defines the data paths and metric targets for one validation mode.
+#   obs_dir     – observation CSV directory (sea_level_obs_m = what is compared)
+#   comp_dir    – comparison CSV output directory
+#   metrics_csv – station metrics output file
+#   fig_dir     – figure output directory
+#   targets     – model targets for metrics; "notide" only for de-tided modes
+#                 (comparing de-tided obs against model_eta_tide would be
+#                  physically inconsistent)
+VALIDATION_MODES: dict[str, dict] = {
+    "raw": {
+        "obs_dir":     GESLA_OBS_DIR,
+        "comp_dir":    GESLA_VS_MODEL_DIR,
+        "metrics_csv": STATION_METRICS_CSV,
+        "fig_dir":     FIG_VALID_RAW_DIR,
+        "targets":     "notide,tide",   # both targets meaningful for raw obs
+    },
+    "godin_filter": {
+        "obs_dir":     GESLA_OBS_GODIN_DIR,
+        "comp_dir":    VALID_GODIN_DIR,
+        "metrics_csv": STATION_METRICS_GODIN_CSV,
+        "fig_dir":     FIG_VALID_GODIN_DIR,
+        "targets":     "notide",        # de-tided obs vs storm-surge model only
+    },
+    "minus_fes_tide": {
+        "obs_dir":     GESLA_OBS_FES_DIR,
+        "comp_dir":    VALID_FES_DIR,
+        "metrics_csv": STATION_METRICS_FES_CSV,
+        "fig_dir":     FIG_VALID_FES_DIR,
+        "targets":     "notide",        # de-tided obs vs storm-surge model only
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +261,30 @@ def parse_args() -> argparse.Namespace:
                    help="Force recomputation of station metrics (Stage 5).")
     p.add_argument("--force-maps",     action="store_true",
                    help="Force regeneration of validation maps (Stage 6).")
+
+    # ---- Validation mode ----------------------------------------------------
+    p.add_argument(
+        "--mode",
+        nargs="+",
+        default=["raw"],
+        choices=["raw", "godin_filter", "minus_fes_tide", "all"],
+        metavar="MODE",
+        help=(
+            "Which validation mode(s) to run for Stages 4–6.  "
+            "Choices: raw | godin_filter | minus_fes_tide | all.  "
+            "Multiple modes can be given: --mode raw godin_filter.  "
+            "'all' expands to all three modes.  "
+            "Stages 1–3 always run (they produce data shared by all modes).  "
+            "(default: raw)"
+        ),
+    )
+
+    # ---- Detiding force flags -----------------------------------------------
+    p.add_argument(
+        "--force-detide",
+        action="store_true",
+        help="Force re-application of tidal detiding (Stage 3.5).",
+    )
 
     # ---- Dry-run ------------------------------------------------------------
     p.add_argument(
@@ -575,7 +665,63 @@ def stage3_extract_model(
 
 
 # ---------------------------------------------------------------------------
-# Stage 4 — Build comparison CSVs
+# Stage 3.5 — Apply tidal detiding (only for non-raw modes)
+# ---------------------------------------------------------------------------
+
+def stage35_apply_detiding(
+    modes: list[str],
+    force: bool,
+    dry_run: bool,
+    n_workers: int,
+    station: str | None,
+) -> None:
+    """
+    Apply Godin filter and/or FES2022 tidal subtraction to GESLA observations.
+
+    Only runs when at least one non-raw mode is selected.  The two methods are
+    independent and can both run in the same call:
+
+      godin_filter   → data/processed/gesla/observations_godin/
+      minus_fes_tide → data/processed/gesla/observations_fes/
+
+    Godin is parallelised via ThreadPoolExecutor; FES is sequential (NetCDF
+    file I/O is not guaranteed to be thread-safe).
+    """
+    needs_godin = "godin_filter"   in modes
+    needs_fes   = "minus_fes_tide" in modes
+    if not needs_godin and not needs_fes:
+        return  # only raw mode selected — nothing to detide
+
+    _stage_header(35, "Apply tidal detiding to GESLA observations")
+
+    import subprocess
+
+    script = _ROOT / "scripts" / "validation" / "apply_tidal_detiding.py"
+
+    # Determine which methods to run
+    if needs_godin and needs_fes:
+        method = "all"
+    elif needs_godin:
+        method = "godin_filter"
+    else:
+        method = "minus_fes_tide"
+
+    cmd = [sys.executable, str(script), "--method", method, "--workers", str(n_workers)]
+    if force:
+        cmd.append("--force")
+    if dry_run:
+        cmd.append("--dry-run")
+    if station:
+        cmd += ["--station", station]
+
+    logger.info("  Running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        logger.error("  apply_tidal_detiding.py exited with code %d", result.returncode)
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — Build comparison CSVs  (mode-aware)
 # ---------------------------------------------------------------------------
 
 def stage4_build_comparison(
@@ -585,31 +731,30 @@ def stage4_build_comparison(
     dry_run: bool,
     t_start: str | None,
     t_end: str | None,
+    mode_label: str,
+    mode_cfg: dict,
 ) -> None:
     """Merge GESLA obs + model TS → final comparison CSVs (parallel)."""
-    _stage_header(4, "Build observation-vs-model comparison CSVs")
+    _stage_header(4, f"Build comparison CSVs  [{mode_label}]")
 
     from scripts.validation.build_comparison_csvs import merge_one_station as _merge
 
-    obs_dir   = GESLA_OBS_DIR
+    obs_dir   = pathlib.Path(mode_cfg["obs_dir"])
     model_dir = MODEL_TS_DIR
-    out_dir   = GESLA_VS_MODEL_DIR
+    out_dir   = pathlib.Path(mode_cfg["comp_dir"])
+
+    if not obs_dir.exists():
+        logger.warning("  obs_dir not found: %s — skipping stage 4 for mode '%s'", obs_dir, mode_label)
+        return
 
     # f.stem on "foo.csv.gz" returns "foo.csv" — strip both suffixes
-    file_names = sorted(
-        f.with_suffix("").stem for f in obs_dir.glob("*.csv.gz")
-    ) if obs_dir.exists() else []
-
-    # Filter to single station if requested
-    if hasattr(station_list, '_station_filter') and station_list._station_filter:
-        stn = station_list._station_filter
-        file_names = [stn] if stn in file_names else []
+    file_names = sorted(f.with_suffix("").stem for f in obs_dir.glob("*.csv.gz"))
 
     # Intersect with station_list file names
     stn_set = set(station_list["file_name"].str.strip())
     file_names = [fn for fn in file_names if fn in stn_set]
 
-    logger.info("  Merging %d stations", len(file_names))
+    logger.info("  Merging %d stations  (obs: %s)", len(file_names), obs_dir)
 
     def _worker(file_name: str) -> str:
         return _merge(
@@ -623,32 +768,54 @@ def stage4_build_comparison(
             force=force,
         )
 
-    counts = _run_parallel(file_names, _worker, desc="Stage 4", n_workers=n_workers, dry_run=dry_run)
+    counts = _run_parallel(file_names, _worker, desc=f"Stage 4 [{mode_label}]",
+                           n_workers=n_workers, dry_run=dry_run)
     _log_counts(counts)
 
 
 # ---------------------------------------------------------------------------
-# Stage 5 — Compute station metrics
+# Stage 5 — Compute station metrics  (mode-aware)
 # ---------------------------------------------------------------------------
 
-def stage5_compute_metrics(force: bool, dry_run: bool) -> None:
+def stage5_compute_metrics(
+    force: bool,
+    dry_run: bool,
+    mode_label: str,
+    mode_cfg: dict,
+) -> None:
     """Compute per-station skill metrics and save to results/validation/."""
-    _stage_header(5, "Compute per-station validation metrics")
+    _stage_header(5, f"Compute per-station validation metrics  [{mode_label}]")
 
-    if STATION_METRICS_CSV.exists() and not force:
+    metrics_csv = pathlib.Path(mode_cfg["metrics_csv"])
+    comp_dir    = pathlib.Path(mode_cfg["comp_dir"])
+    targets     = mode_cfg["targets"]
+
+    if metrics_csv.exists() and not force:
         logger.info(
             "  Metrics already exist at %s — skipping.  Use --force-metrics to recompute.",
-            STATION_METRICS_CSV,
+            metrics_csv,
+        )
+        return
+
+    if not comp_dir.exists() or not any(comp_dir.glob("*.csv.gz")):
+        logger.warning(
+            "  No comparison CSVs in %s — skipping stage 5 for mode '%s'.",
+            comp_dir, mode_label,
         )
         return
 
     if dry_run:
-        logger.info("[DRY-RUN] Would compute metrics → %s", STATION_METRICS_CSV)
+        logger.info("[DRY-RUN] Would compute metrics → %s", metrics_csv)
         return
 
     import subprocess
     script = _ROOT / "scripts" / "validation" / "compute_station_metrics.py"
-    cmd = [sys.executable, str(script)]
+    cmd = [
+        sys.executable, str(script),
+        "--comp-dir", str(comp_dir),
+        "--out",      str(metrics_csv),
+        "--targets",  targets,
+    ]
     if force:
         cmd.append("--force")
     logger.info("  Running: %s", " ".join(cmd))
@@ -658,39 +825,66 @@ def stage5_compute_metrics(force: bool, dry_run: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stage 6 — Generate maps
+# Stage 6 — Generate maps  (mode-aware)
 # ---------------------------------------------------------------------------
 
-def stage6_generate_maps(force: bool, dry_run: bool) -> None:
+# Metrics available per target set
+_METRICS_NOTIDE_ONLY = [
+    "rmse_notide", "bias_notide", "pearson_r_notide",
+    "obs_mean_m",  "model_notide_mean_m",
+    "obs_max_m",   "model_notide_max_m",
+    "n_valid",
+]
+_METRICS_BOTH = _METRICS_NOTIDE_ONLY + [
+    "rmse_tide",   "bias_tide",   "pearson_r_tide",
+    "model_tide_mean_m", "model_tide_max_m",
+]
+
+
+def stage6_generate_maps(
+    force: bool,
+    dry_run: bool,
+    mode_label: str,
+    mode_cfg: dict,
+) -> None:
     """Generate validation maps coloured by per-station metrics."""
-    _stage_header(6, "Generate station validation maps")
+    _stage_header(6, f"Generate station validation maps  [{mode_label}]")
+
+    metrics_csv = pathlib.Path(mode_cfg["metrics_csv"])
+    fig_dir     = pathlib.Path(mode_cfg["fig_dir"])
+    targets     = mode_cfg["targets"]
+
+    # Choose which metrics to plot based on active targets.
+    # targets is a comma-separated string like "notide,tide" or "notide".
+    # Use set membership to avoid the "tide" in "notide" substring trap.
+    target_set = {t.strip() for t in targets.split(",")}
+    metrics = _METRICS_BOTH if "tide" in target_set else _METRICS_NOTIDE_ONLY
 
     if dry_run:
-        logger.info("[DRY-RUN] Would generate maps → %s", FIG_VALID_DIR)
+        logger.info("[DRY-RUN] Would generate %d maps → %s", len(metrics), fig_dir)
         return
 
-    if not STATION_METRICS_CSV.exists():
-        logger.error(
-            "  Metrics file not found: %s\n  Run Stage 5 first.",
-            STATION_METRICS_CSV,
+    if not metrics_csv.exists():
+        logger.warning(
+            "  Metrics file not found: %s — skipping stage 6 for mode '%s'.",
+            metrics_csv, mode_label,
         )
         return
 
     import subprocess
     script = _ROOT / "scripts" / "validation" / "plot_station_metric_map.py"
-    metrics = [
-        "rmse_notide", "bias_notide", "pearson_r_notide",
-        "rmse_tide",   "bias_tide",   "pearson_r_tide",
-        "obs_mean_m",  "model_notide_mean_m", "model_tide_mean_m",
-        "obs_max_m",   "model_notide_max_m",  "model_tide_max_m",
-        "n_valid",
-    ]
+
     for metric in metrics:
-        out_file = FIG_VALID_DIR / f"station_map_{metric}.png"
+        out_file = fig_dir / f"station_map_{metric}.png"
         if out_file.exists() and not force:
             logger.debug("  SKIP (exists): %s", out_file.name)
             continue
-        cmd = [sys.executable, str(script), "--metric", metric]
+        cmd = [
+            sys.executable, str(script),
+            "--metric",       metric,
+            "--metrics-file", str(metrics_csv),
+            "--out-dir",      str(fig_dir),
+        ]
         if force:
             cmd.append("--force")
         logger.info("  Plotting metric: %s", metric)
@@ -698,7 +892,7 @@ def stage6_generate_maps(force: bool, dry_run: bool) -> None:
         if result.returncode != 0:
             logger.warning("  plot_station_metric_map.py failed for metric '%s'", metric)
 
-    logger.info("  Maps saved to %s", FIG_VALID_DIR)
+    logger.info("  Maps saved to %s", fig_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -709,20 +903,37 @@ def main() -> None:
     args = parse_args()
     logging.getLogger().setLevel(args.log_level)
 
-    # Expand --force-all
+    # Expand --force-all (also covers detiding)
     if args.force_all:
         args.force_download = True
         args.force_prepare  = True
         args.force_extract  = True
+        args.force_detide   = True
         args.force_build    = True
         args.force_metrics  = True
         args.force_maps     = True
+
+    # Expand "all" mode to the three concrete modes
+    selected_modes: list[str] = []
+    for m in args.mode:
+        if m == "all":
+            selected_modes.extend(["raw", "godin_filter", "minus_fes_tide"])
+        else:
+            selected_modes.append(m)
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    active_modes: list[str] = []
+    for m in selected_modes:
+        if m not in seen:
+            active_modes.append(m)
+            seen.add(m)
 
     t0 = time.time()
 
     logger.info("=" * 64)
     logger.info("  POM / GESLA-4 Validation Pipeline")
-    logger.info("  workers=%d   dry_run=%s", args.workers, args.dry_run)
+    logger.info("  modes=%s   workers=%d   dry_run=%s",
+                active_modes, args.workers, args.dry_run)
     logger.info("=" * 64)
 
     # ---- Load station list --------------------------------------------------
@@ -736,10 +947,10 @@ def main() -> None:
         logger.info("Single-station mode: %s", args.station)
     logger.info("Station list: %d stations", len(station_list))
 
-    # ---- Stage 1 ------------------------------------------------------------
+    # ---- Stage 1 — always runs ---------------------------------------------
     stage1_check_gesla(args)
 
-    # ---- Stage 2 ------------------------------------------------------------
+    # ---- Stage 2 — always runs ---------------------------------------------
     stage2_prepare_gesla(
         station_list=station_list,
         n_workers=args.workers,
@@ -748,7 +959,7 @@ def main() -> None:
         zip_file_override=args.zip_file,
     )
 
-    # ---- Stage 3 ------------------------------------------------------------
+    # ---- Stage 3 — always runs ---------------------------------------------
     stage3_extract_model(
         station_list=station_list,
         n_workers=args.workers,
@@ -758,30 +969,55 @@ def main() -> None:
         t_end=args.t_end,
     )
 
-    # ---- Stage 4 ------------------------------------------------------------
-    stage4_build_comparison(
-        station_list=station_list,
-        n_workers=args.workers,
-        force=args.force_build,
+    # ---- Stage 3.5 — tidal detiding (only for non-raw modes) ---------------
+    stage35_apply_detiding(
+        modes=active_modes,
+        force=args.force_detide,
         dry_run=args.dry_run,
-        t_start=args.t_start,
-        t_end=args.t_end,
+        n_workers=args.workers,
+        station=args.station,
     )
 
-    # ---- Stage 5 ------------------------------------------------------------
-    stage5_compute_metrics(force=args.force_metrics, dry_run=args.dry_run)
+    # ---- Stages 4–6: loop over each selected validation mode ----------------
+    for mode_label in active_modes:
+        mode_cfg = VALIDATION_MODES[mode_label]
 
-    # ---- Stage 6 ------------------------------------------------------------
-    stage6_generate_maps(force=args.force_maps, dry_run=args.dry_run)
+        stage4_build_comparison(
+            station_list=station_list,
+            n_workers=args.workers,
+            force=args.force_build,
+            dry_run=args.dry_run,
+            t_start=args.t_start,
+            t_end=args.t_end,
+            mode_label=mode_label,
+            mode_cfg=mode_cfg,
+        )
+
+        stage5_compute_metrics(
+            force=args.force_metrics,
+            dry_run=args.dry_run,
+            mode_label=mode_label,
+            mode_cfg=mode_cfg,
+        )
+
+        stage6_generate_maps(
+            force=args.force_maps,
+            dry_run=args.dry_run,
+            mode_label=mode_label,
+            mode_cfg=mode_cfg,
+        )
 
     # ---- Final summary ------------------------------------------------------
     elapsed = time.time() - t0
     logger.info("")
     logger.info("=" * 64)
     logger.info("  Pipeline complete in %.1f s (%.1f min)", elapsed, elapsed / 60)
-    logger.info("  Comparison CSVs : %s", GESLA_VS_MODEL_DIR)
-    logger.info("  Metrics         : %s", STATION_METRICS_CSV)
-    logger.info("  Maps            : %s", FIG_VALID_DIR)
+    for mode_label in active_modes:
+        cfg = VALIDATION_MODES[mode_label]
+        logger.info("  [%s]", mode_label)
+        logger.info("    Comparison CSVs : %s", cfg["comp_dir"])
+        logger.info("    Metrics         : %s", cfg["metrics_csv"])
+        logger.info("    Maps            : %s", cfg["fig_dir"])
     logger.info("=" * 64)
 
 

@@ -236,6 +236,39 @@ GESLA_QC_GOOD_FLAGS      = {1}        # QC flags considered "good quality" obser
 GESLA_USE_GOOD_FLAGS     = {1}        # use-flags considered "recommended for use"
 
 # ---------------------------------------------------------------------------
+# Tidal detiding — new validation modes
+# ---------------------------------------------------------------------------
+
+# Detided observation directories (sea_level_obs_m = detided value)
+GESLA_OBS_GODIN_DIR = PROCESSED_DIR / "gesla" / "observations_godin"
+GESLA_OBS_FES_DIR   = PROCESSED_DIR / "gesla" / "observations_fes"
+
+# Comparison CSVs per validation mode
+VALID_GODIN_DIR     = VALIDATION_DIR / "godin_filter"   / "gesla_vs_model"
+VALID_FES_DIR       = VALIDATION_DIR / "minus_fes_tide" / "gesla_vs_model"
+
+# Metrics CSVs per validation mode
+STATION_METRICS_GODIN_CSV = RESULTS_VALID_DIR / "godin_filter"   / "station_metrics.csv"
+STATION_METRICS_FES_CSV   = RESULTS_VALID_DIR / "minus_fes_tide" / "station_metrics.csv"
+
+# Figure directories per validation mode
+FIG_VALID_RAW_DIR   = FIG_VALID_DIR / "raw"
+FIG_VALID_GODIN_DIR = FIG_VALID_DIR / "godin_filter"
+FIG_VALID_FES_DIR   = FIG_VALID_DIR / "minus_fes_tide"
+
+# Tide model data
+TIDE_MODELS_DIR = DATA_DIR / "tide_models_clipped_brasil"
+FES_MODEL_NAME  = "FES2022"   # identifier passed to eo-tides / pyTMD
+
+for _d in [
+    GESLA_OBS_GODIN_DIR, GESLA_OBS_FES_DIR,
+    VALID_GODIN_DIR, VALID_FES_DIR,
+    STATION_METRICS_GODIN_CSV.parent, STATION_METRICS_FES_CSV.parent,
+    FIG_VALID_RAW_DIR, FIG_VALID_GODIN_DIR, FIG_VALID_FES_DIR,
+]:
+    _d.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
 # SurgeMIP project metadata
 # ---------------------------------------------------------------------------
 SURGMIP_META = {

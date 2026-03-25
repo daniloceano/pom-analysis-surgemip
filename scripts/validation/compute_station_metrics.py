@@ -103,6 +103,17 @@ def parse_args() -> argparse.Namespace:
         help="Compute metrics for only this station (file name, no extension).",
     )
     p.add_argument(
+        "--targets",
+        default="notide,tide",
+        help=(
+            "Comma-separated list of model targets to compute metrics for.  "
+            "Choices: 'notide', 'tide', or 'notide,tide'.  "
+            "Use '--targets notide' for de-tided validations where comparing "
+            "against model_eta_tide_m would be physically inconsistent.  "
+            "(default: notide,tide)"
+        ),
+    )
+    p.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output file.",
@@ -137,12 +148,32 @@ def _pearson_r(obs: np.ndarray, model: np.ndarray) -> float:
 
 def compute_metrics_for_file(
     csv_path: pathlib.Path,
+    targets: set[str] | None = None,
 ) -> dict | None:
     """
     Read one comparison CSV and compute skill metrics.
 
-    Returns a dict of metrics, or None if the file is empty / unreadable.
+    Parameters
+    ----------
+    csv_path : pathlib.Path
+        Path to the ``*.csv.gz`` comparison file.
+    targets : set of str, optional
+        Which model targets to compute metrics for.  Valid elements:
+        ``"notide"`` and/or ``"tide"``.  Default (``None``) computes both.
+        Use ``{"notide"}`` for de-tided validation modes where comparing
+        against ``model_eta_tide_m`` would be physically inconsistent.
+
+    Returns
+    -------
+    dict or None
+        Metrics row, or None if the file is empty / unreadable.
     """
+    if targets is None:
+        targets = {"notide", "tide"}
+
+    do_notide = "notide" in targets
+    do_tide   = "tide"   in targets
+
     try:
         df = pd.read_csv(csv_path, compression="gzip")
     except Exception as exc:
@@ -162,61 +193,79 @@ def compute_metrics_for_file(
     if "gesla_use_flag" in df.columns:
         mask &= df["gesla_use_flag"].isin(GESLA_USE_GOOD_FLAGS)
     mask &= df["sea_level_obs_m"].notna()
-    mask &= df.get("model_eta_notide_m", pd.Series(dtype=float)).notna()
-    mask &= df.get("model_eta_tide_m",   pd.Series(dtype=float)).notna()
+    if do_notide:
+        mask &= df.get("model_eta_notide_m", pd.Series(dtype=float)).notna()
+    if do_tide:
+        mask &= df.get("model_eta_tide_m",   pd.Series(dtype=float)).notna()
 
     df_good = df[mask].copy()
     n_valid = len(df_good)
 
+    nan_row: dict = {}
+    for col in _META_COLS:
+        nan_row[col] = df[col].iloc[0] if col in df.columns else np.nan
+    nan_row.update({"n_total": n_total, "n_valid": n_valid,
+                    "obs_mean_m": np.nan, "obs_std_m": np.nan, "obs_max_m": np.nan})
+    for pfx in ("notide", "tide"):
+        nan_row.update({
+            f"model_{pfx}_mean_m": np.nan, f"model_{pfx}_std_m": np.nan,
+            f"model_{pfx}_max_m":  np.nan,
+            f"rmse_{pfx}": np.nan, f"bias_{pfx}": np.nan, f"pearson_r_{pfx}": np.nan,
+        })
+
     if n_valid < 10:
         logger.debug("  Too few valid samples (%d) for %s", n_valid, csv_path.stem)
-        # Still emit a row with NaN metrics so station appears in the table
-        row: dict = {}
-        for col in _META_COLS:
-            row[col] = df[col].iloc[0] if col in df.columns else np.nan
+        return nan_row
+
+    obs = df_good["sea_level_obs_m"].to_numpy(dtype=float)
+
+    row: dict = {}
+    for col in _META_COLS:
+        row[col] = df[col].iloc[0] if col in df.columns else np.nan
+    row.update({
+        "n_total": n_total,
+        "n_valid": n_valid,
+        "obs_mean_m": float(np.mean(obs)),
+        "obs_std_m":  float(np.std(obs)),
+        "obs_max_m":  float(np.max(np.abs(obs))),
+    })
+
+    # ---- notide metrics -------------------------------------------------------
+    if do_notide and "model_eta_notide_m" in df_good.columns:
+        notide = df_good["model_eta_notide_m"].to_numpy(dtype=float)
         row.update({
-            "n_total": n_total,
-            "n_valid": n_valid,
-            "obs_mean_m": np.nan, "obs_std_m": np.nan, "obs_max_m": np.nan,
+            "model_notide_mean_m": float(np.mean(notide)),
+            "model_notide_std_m":  float(np.std(notide)),
+            "model_notide_max_m":  float(np.max(np.abs(notide))),
+            "rmse_notide":         _rmse(obs, notide),
+            "bias_notide":         _bias(obs, notide),
+            "pearson_r_notide":    _pearson_r(obs, notide),
+        })
+    else:
+        row.update({
             "model_notide_mean_m": np.nan, "model_notide_std_m": np.nan,
             "model_notide_max_m": np.nan,
             "rmse_notide": np.nan, "bias_notide": np.nan, "pearson_r_notide": np.nan,
+        })
+
+    # ---- tide metrics ---------------------------------------------------------
+    if do_tide and "model_eta_tide_m" in df_good.columns:
+        tide = df_good["model_eta_tide_m"].to_numpy(dtype=float)
+        row.update({
+            "model_tide_mean_m":   float(np.mean(tide)),
+            "model_tide_std_m":    float(np.std(tide)),
+            "model_tide_max_m":    float(np.max(np.abs(tide))),
+            "rmse_tide":           _rmse(obs, tide),
+            "bias_tide":           _bias(obs, tide),
+            "pearson_r_tide":      _pearson_r(obs, tide),
+        })
+    else:
+        row.update({
             "model_tide_mean_m": np.nan, "model_tide_std_m": np.nan,
             "model_tide_max_m": np.nan,
             "rmse_tide": np.nan, "bias_tide": np.nan, "pearson_r_tide": np.nan,
         })
-        return row
 
-    obs      = df_good["sea_level_obs_m"].to_numpy(dtype=float)
-    notide   = df_good["model_eta_notide_m"].to_numpy(dtype=float)
-    tide     = df_good["model_eta_tide_m"].to_numpy(dtype=float)
-
-    row = {}
-    for col in _META_COLS:
-        row[col] = df[col].iloc[0] if col in df.columns else np.nan
-
-    row.update({
-        "n_total": n_total,
-        "n_valid": n_valid,
-        # Observed statistics
-        "obs_mean_m": float(np.mean(obs)),
-        "obs_std_m":  float(np.std(obs)),
-        "obs_max_m":  float(np.max(np.abs(obs))),
-        # Model notide (storm-surge / meteorological sea level)
-        "model_notide_mean_m": float(np.mean(notide)),
-        "model_notide_std_m":  float(np.std(notide)),
-        "model_notide_max_m":  float(np.max(np.abs(notide))),
-        "rmse_notide":         _rmse(obs, notide),
-        "bias_notide":         _bias(obs, notide),
-        "pearson_r_notide":    _pearson_r(obs, notide),
-        # Model tide (full sea level)
-        "model_tide_mean_m":   float(np.mean(tide)),
-        "model_tide_std_m":    float(np.std(tide)),
-        "model_tide_max_m":    float(np.max(np.abs(tide))),
-        "rmse_tide":           _rmse(obs, tide),
-        "bias_tide":           _bias(obs, tide),
-        "pearson_r_tide":      _pearson_r(obs, tide),
-    })
     return row
 
 
@@ -253,6 +302,13 @@ def main() -> None:
         logger.error("No comparison CSVs found in %s", comp_dir)
         sys.exit(1)
 
+    # Parse --targets flag
+    targets_set = {t.strip() for t in args.targets.split(",") if t.strip()}
+    invalid = targets_set - {"notide", "tide"}
+    if invalid:
+        logger.error("Unknown --targets value(s): %s.  Use 'notide', 'tide', or both.", invalid)
+        sys.exit(1)
+    logger.info("Targets: %s", sorted(targets_set))
     logger.info("Computing metrics for %d stations …", len(csv_files))
 
     rows: list[dict] = []
@@ -260,7 +316,7 @@ def main() -> None:
     n_fail = 0
 
     for i, csv_path in enumerate(csv_files, 1):
-        row = compute_metrics_for_file(csv_path)
+        row = compute_metrics_for_file(csv_path, targets=targets_set)
         if row is not None:
             rows.append(row)
             n_ok += 1
