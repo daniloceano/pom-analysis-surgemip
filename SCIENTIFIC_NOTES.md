@@ -125,7 +125,7 @@ Minimum 10 valid co-located samples required; otherwise all metrics are set to N
 | Type | Hydrodynamic tide model with harmonic constants |
 | Access via | `eo-tides` Python library |
 | Coverage | Global; NetCDF files clipped to project domain |
-| Application | Predict and subtract astronomical tide from GESLA-4 obs (minus_fes_tide mode) |
+| Application | Predict and subtract astronomical tide from GESLA-4 obs (fes2022_notide mode) |
 
 ---
 
@@ -187,9 +187,9 @@ Valid for any temporal resolution; station coverage limited to FES2022 model dom
 
 | Mode | Obs | Model | Context |
 |------|-----|-------|---------|
-| `raw` | η_raw (with tide) | η_notide AND η_tide | Descriptive |
-| `godin_filter` | η_godin (tide removed) | η_notide | Surge validation |
-| `minus_fes_tide` | η_raw − η_FES2022 (tide removed) | η_notide | Surge validation |
+| `raw_tide` | η_raw (with tide) | η_notide AND η_tide | Descriptive |
+| `godin_notide` | η_godin (tide removed) | η_notide | Surge validation |
+| `fes2022_notide` | η_raw − η_FES2022 (tide removed) | η_notide | Surge validation |
 
 Comparison CSVs are joined on exact `datetime_utc` (hourly precision, no fuzzy
 tolerance). Model data is extracted only for 2013–2018; earlier GESLA records
@@ -200,14 +200,14 @@ have NaN in model columns.
 ```
 results/validation/
 ├── README.md
-├── raw/station_metrics.csv          ← descriptive metrics (515 stations)
-├── godin_filter/station_metrics.csv ← surge validation, Godin (467 stations)
-└── minus_fes_tide/station_metrics.csv ← surge validation, FES2022 (233 stations)
+├── raw_tide/station_metrics.csv       ← descriptive metrics (515 stations)
+├── godin_notide/station_metrics.csv   ← surge validation, Godin (467 stations)
+└── fes2022_notide/station_metrics.csv ← surge validation, FES2022 (233 stations)
 
 figures/validation/
-├── raw/         ← station maps coloured by tidal metrics
-├── godin_filter/ ← station maps coloured by surge skill (Godin)
-└── minus_fes_tide/ ← station maps coloured by surge skill (FES2022)
+├── raw_tide/       ← station maps coloured by tidal metrics
+├── godin_notide/   ← station maps coloured by surge skill (Godin)
+└── fes2022_notide/ ← station maps coloured by surge skill (FES2022)
 ```
 
 ---
@@ -249,17 +249,17 @@ figures/validation/
 
 | Mode | Stations with metrics |
 |------|-----------------------|
-| raw | 515 |
-| godin_filter | 467 |
-| minus_fes_tide | 233 |
+| raw_tide | 515 |
+| godin_notide | 467 |
+| fes2022_notide | 233 |
 
 **[PRELIMINARY] Key patterns (from site exploration):**
 
 - Stations with strong tidal forcing (e.g., Abashiri, Japan) show extremely high
-  `rmse_notide` in raw mode (e.g., 1.521 m) — confirming this metric is dominated
+  `rmse_notide` in raw_tide mode (e.g., 1.521 m) — confirming this metric is dominated
   by the tidal signal and is not informative for surge validation.
 
-- In godin_filter mode, `pearson_r_notide` is substantially higher than in raw
+- In godin_notide mode, `pearson_r_notide` is substantially higher than in raw_tide
   mode for tidally dominated stations, confirming that Godin filtering exposes
   the surge–model correlation that was masked by the tidal signal.
 
@@ -303,12 +303,12 @@ inspection of the station-map figures.
 ## Next Steps
 
 - [ ] Expand FES2022 coverage to global domain (download full FES2022b constants)
-- [ ] Analyse spatial patterns of godin_filter RMSE and bias (regional clusters)
+- [ ] Analyse spatial patterns of godin_notide RMSE and bias (regional clusters)
 - [ ] Seasonal stratification of skill scores (DJF/MAM/JJA/SON)
 - [ ] Case-study validation for specific extreme surge events (e.g., 2016–2018 cyclones)
 - [ ] Comparison of POM skill with other SurgeMIP models (when inter-comparison data available)
 - [ ] Sensitivity test: impact of grid resolution on nearest-point distance and skill
-- [ ] Document and quantify the 48 sub-hourly stations excluded from Godin mode
+- [ ] Document and quantify the 48 sub-hourly stations excluded from godin_notide mode
 
 ---
 

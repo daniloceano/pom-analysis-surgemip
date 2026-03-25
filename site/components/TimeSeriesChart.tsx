@@ -7,14 +7,14 @@
  *
  * Visualisation logic per observation treatment:
  *
- *   raw            → obs (with tide) + POM tide + POM no-tide (reference)
- *                    Descriptive — both signals include astronomical tide.
+ *   raw_tide        → obs (with tide) + POM tide + POM no-tide (reference)
+ *                     Descriptive — both signals include astronomical tide.
  *
- *   godin_filter   → obs (Godin-detided) + POM no-tide
- *                    Surge validation — tide removed from obs.
+ *   godin_notide    → obs (Godin-detided) + POM no-tide
+ *                     Surge validation — tide removed from obs.
  *
- *   minus_fes_tide → obs (FES2022-detided) + POM no-tide
- *                    Surge validation — tide removed from obs.
+ *   fes2022_notide  → obs (FES2022-detided) + POM no-tide
+ *                     Surge validation — tide removed from obs.
  */
 
 import { useEffect, useState } from "react";
@@ -27,23 +27,23 @@ interface Props {
 
 // Trace labels per observation treatment
 const TRACE_OBS: Record<ValidationMode, string> = {
-  raw:            "GESLA obs (raw, with tide)",
-  godin_filter:   "GESLA obs (Godin-detided)",
-  minus_fes_tide: "GESLA obs (FES2022-detided)",
+  raw_tide:       "GESLA obs (raw, with tide)",
+  godin_notide:   "GESLA obs (Godin-detided)",
+  fes2022_notide: "GESLA obs (FES2022-detided)",
 };
 
 const TRACE_NOTIDE: Record<ValidationMode, string> = {
-  raw:            "POM no-tide (surge, reference)",
-  godin_filter:   "POM no-tide (surge)",
-  minus_fes_tide: "POM no-tide (surge)",
+  raw_tide:       "POM no-tide (surge, reference)",
+  godin_notide:   "POM no-tide (surge)",
+  fes2022_notide: "POM no-tide (surge)",
 };
 
 const TRACE_TIDE = "POM tide (surge + tide)";
 
 const MODE_SUBTITLE: Record<ValidationMode, string> = {
-  raw:            "descriptive",
-  godin_filter:   "surge validation · Godin-detided",
-  minus_fes_tide: "surge validation · FES2022-detided",
+  raw_tide:       "descriptive",
+  godin_notide:   "surge validation · Godin-detided",
+  fes2022_notide: "surge validation · FES2022-detided",
 };
 
 export default function TimeSeriesChart({ station, mode }: Props) {
@@ -121,9 +121,9 @@ export default function TimeSeriesChart({ station, mode }: Props) {
       mode: "lines",
       // In raw mode, no-tide is shown as a light reference trace (not a direct comparison)
       line: {
-        color: mode === "raw" ? "#94a3b8" : "#6366f1",
-        width: mode === "raw" ? 1.0 : 1.5,
-        dash: mode === "raw" ? "dot" : "dot",
+        color: mode === "raw_tide" ? "#94a3b8" : "#6366f1",
+        width: mode === "raw_tide" ? 1.0 : 1.5,
+        dash: "dot",
       },
       connectgaps: false,
     });

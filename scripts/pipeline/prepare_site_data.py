@@ -10,7 +10,7 @@ Outputs (written to site/public/data/)
 ---------------------------------------
   station_metrics.json   – unified per-station metrics for all modes
                            (used to populate the map and summary cards)
-  ts/<mode>/<stn>.json   – per-station daily-mean time series (raw, godin, fes)
+  ts/<mode>/<stn>.json   – per-station daily-mean time series (raw_tide, godin_notide, fes2022_notide)
                            (lazy-loaded when user clicks a station)
 
 Station metrics JSON structure
@@ -28,7 +28,7 @@ Station metrics JSON structure
         "model_lat": ...,
         "distance_km": ...,
         "metrics": {
-          "raw": {
+          "raw_tide": {
             "n_valid": 1234,
             "rmse_notide": 0.05,
             "bias_notide": 0.01,
@@ -39,8 +39,8 @@ Station metrics JSON structure
             "obs_mean_m": 0.12,
             "obs_max_m": 0.80
           },
-          "godin_filter": { ... },
-          "minus_fes_tide": { ... }
+          "godin_notide": { ... },
+          "fes2022_notide": { ... }
         }
       },
       ...
@@ -51,11 +51,11 @@ Time series JSON structure
 --------------------------
   {
     "station_id": "santos-540a-bra-uhslc",
-    "mode": "raw",
+    "mode": "raw_tide",
     "dates": ["2013-01-01", ...],
     "obs": [0.12, ...],
     "notide": [0.05, ...],
-    "tide": [0.15, ...]       <- only in raw mode
+    "tide": [0.15, ...]       <- only in raw_tide mode
   }
 
 Usage
@@ -201,13 +201,13 @@ def build_station_metrics_json(
         }
 
         if raw_df is not None and stn_id in raw_df.index:
-            stn["metrics"]["raw"] = _metrics_row_to_dict(raw_df.loc[stn_id], _METRIC_COLS_RAW)
+            stn["metrics"]["raw_tide"] = _metrics_row_to_dict(raw_df.loc[stn_id], _METRIC_COLS_RAW)
 
         if godin_df is not None and stn_id in godin_df.index:
-            stn["metrics"]["godin_filter"] = _metrics_row_to_dict(godin_df.loc[stn_id], _METRIC_COLS_DETIDED)
+            stn["metrics"]["godin_notide"] = _metrics_row_to_dict(godin_df.loc[stn_id], _METRIC_COLS_DETIDED)
 
         if fes_df is not None and stn_id in fes_df.index:
-            stn["metrics"]["minus_fes_tide"] = _metrics_row_to_dict(fes_df.loc[stn_id], _METRIC_COLS_DETIDED)
+            stn["metrics"]["fes2022_notide"] = _metrics_row_to_dict(fes_df.loc[stn_id], _METRIC_COLS_DETIDED)
 
         # Only include stations that have at least one mode AND valid coordinates
         if stn["lon"] is not None and stn["lat"] is not None and stn["metrics"]:
@@ -249,7 +249,7 @@ def _load_ts_for_mode(
     keep_cols = ["sea_level_obs_m"]
     if "model_eta_notide_m" in df.columns:
         keep_cols.append("model_eta_notide_m")
-    if "model_eta_tide_m" in df.columns and mode == "raw":
+    if "model_eta_tide_m" in df.columns and mode == "raw_tide":
         keep_cols.append("model_eta_tide_m")
 
     df = df[keep_cols].copy()
@@ -311,14 +311,14 @@ def main() -> None:
 
     modes_available = []
     if raw_df is not None:
-        logger.info("  raw   : %d stations", len(raw_df))
-        modes_available.append("raw")
+        logger.info("  raw_tide      : %d stations", len(raw_df))
+        modes_available.append("raw_tide")
     if godin_df is not None:
-        logger.info("  godin : %d stations", len(godin_df))
-        modes_available.append("godin_filter")
+        logger.info("  godin_notide  : %d stations", len(godin_df))
+        modes_available.append("godin_notide")
     if fes_df is not None:
-        logger.info("  fes   : %d stations", len(fes_df))
-        modes_available.append("minus_fes_tide")
+        logger.info("  fes2022_notide: %d stations", len(fes_df))
+        modes_available.append("fes2022_notide")
 
     if not modes_available:
         logger.error("No metrics found. Run compute_station_metrics.py first.")
@@ -342,9 +342,9 @@ def main() -> None:
         return
 
     mode_comps = {
-        "raw":           GESLA_VS_MODEL_DIR,
-        "godin_filter":  VALID_GODIN_DIR,
-        "minus_fes_tide": VALID_FES_DIR,
+        "raw_tide":      GESLA_VS_MODEL_DIR,
+        "godin_notide":  VALID_GODIN_DIR,
+        "fes2022_notide": VALID_FES_DIR,
     }
 
     # Determine station IDs to process

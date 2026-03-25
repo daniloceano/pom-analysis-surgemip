@@ -15,16 +15,16 @@ Stages
 
 Validation modes (--mode)
 -------------------------
-  raw            – Compare raw tidal observations vs model_eta_notide &
-                   model_eta_tide.  No detiding applied.
-  godin_filter   – Godin (1972) low-pass filter (24 h + 24 h + 25 h running
+  raw_tide       – Compare raw tidal observations vs model_eta_tide (and
+                   model_eta_notide for reference).  No detiding applied.
+                   Descriptive only — not a surge validation metric.
+  godin_notide   – Godin (1972) low-pass filter (24 h + 24 h + 25 h running
                    means) removes astronomical tide from observations.
                    De-tided obs compared only to model_eta_notide (storm
-                   surge; comparing against model_eta_tide would be
-                   physically inconsistent).
-  minus_fes_tide – FES2022 astronomical tide predicted at each station with
+                   surge validation).
+  fes2022_notide – FES2022 astronomical tide predicted at each station with
                    eo-tides and subtracted from observations.  De-tided obs
-                   compared only to model_eta_notide.
+                   compared only to model_eta_notide (surge validation).
   all            – Run all three modes in sequence.
 
 Stages 1–3 always run (shared inputs across modes).  Stage 3.5 and Stages
@@ -63,7 +63,7 @@ Usage
 
     # Specific modes only:
     python scripts/pipeline/run_gesla_validation_pipeline.py \\
-        --mode godin_filter minus_fes_tide
+        --mode godin_notide fes2022_notide
 
     # Force all stages from scratch (all modes):
     python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --force-all
@@ -151,27 +151,31 @@ GESLA_STATIONS_DIR = GESLA_RAW_DIR  / "stations"
 #   targets     – model targets for metrics; "notide" only for de-tided modes
 #                 (comparing de-tided obs against model_eta_tide would be
 #                  physically inconsistent)
+# Mode naming: <obs_treatment>_<model_target>
+#   raw_tide       – obs_raw (with tide)   vs  POM tide   — descriptive
+#   godin_notide   – obs_godin (detided)   vs  POM notide — surge validation
+#   fes2022_notide – obs_fes2022 (detided) vs  POM notide — surge validation
 VALIDATION_MODES: dict[str, dict] = {
-    "raw": {
+    "raw_tide": {
         "obs_dir":     GESLA_OBS_DIR,
         "comp_dir":    GESLA_VS_MODEL_DIR,
         "metrics_csv": STATION_METRICS_CSV,
         "fig_dir":     FIG_VALID_RAW_DIR,
-        "targets":     "notide,tide",   # both targets meaningful for raw obs
+        "targets":     "notide,tide",   # both: notide (informational) and tide (descriptive)
     },
-    "godin_filter": {
+    "godin_notide": {
         "obs_dir":     GESLA_OBS_GODIN_DIR,
         "comp_dir":    VALID_GODIN_DIR,
         "metrics_csv": STATION_METRICS_GODIN_CSV,
         "fig_dir":     FIG_VALID_GODIN_DIR,
-        "targets":     "notide",        # de-tided obs vs storm-surge model only
+        "targets":     "notide",        # surge validation: detided obs vs POM notide
     },
-    "minus_fes_tide": {
+    "fes2022_notide": {
         "obs_dir":     GESLA_OBS_FES_DIR,
         "comp_dir":    VALID_FES_DIR,
         "metrics_csv": STATION_METRICS_FES_CSV,
         "fig_dir":     FIG_VALID_FES_DIR,
-        "targets":     "notide",        # de-tided obs vs storm-surge model only
+        "targets":     "notide",        # surge validation: detided obs vs POM notide
     },
 }
 
@@ -266,13 +270,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--mode",
         nargs="+",
-        default=["raw"],
-        choices=["raw", "godin_filter", "minus_fes_tide", "all"],
+        default=["raw_tide"],
+        choices=["raw_tide", "godin_notide", "fes2022_notide", "all"],
         metavar="MODE",
         help=(
             "Which validation mode(s) to run for Stages 4–6.  "
-            "Choices: raw | godin_filter | minus_fes_tide | all.  "
-            "Multiple modes can be given: --mode raw godin_filter.  "
+            "Choices: raw_tide | godin_notide | fes2022_notide | all.  "
+            "Multiple modes can be given: --mode raw_tide godin_notide.  "
             "'all' expands to all three modes.  "
             "Stages 1–3 always run (they produce data shared by all modes).  "
             "(default: raw)"
@@ -681,14 +685,14 @@ def stage35_apply_detiding(
     Only runs when at least one non-raw mode is selected.  The two methods are
     independent and can both run in the same call:
 
-      godin_filter   → data/processed/gesla/observations_godin/
-      minus_fes_tide → data/processed/gesla/observations_fes/
+      godin   → data/processed/gesla/observations_godin/
+      fes2022 → data/processed/gesla/observations_fes/
 
     Godin is parallelised via ThreadPoolExecutor; FES is sequential (NetCDF
     file I/O is not guaranteed to be thread-safe).
     """
-    needs_godin = "godin_filter"   in modes
-    needs_fes   = "minus_fes_tide" in modes
+    needs_godin = "godin_notide"   in modes
+    needs_fes   = "fes2022_notide" in modes
     if not needs_godin and not needs_fes:
         return  # only raw mode selected — nothing to detide
 
@@ -702,9 +706,9 @@ def stage35_apply_detiding(
     if needs_godin and needs_fes:
         method = "all"
     elif needs_godin:
-        method = "godin_filter"
+        method = "godin"
     else:
-        method = "minus_fes_tide"
+        method = "fes2022"
 
     cmd = [sys.executable, str(script), "--method", method, "--workers", str(n_workers)]
     if force:
@@ -917,7 +921,7 @@ def main() -> None:
     selected_modes: list[str] = []
     for m in args.mode:
         if m == "all":
-            selected_modes.extend(["raw", "godin_filter", "minus_fes_tide"])
+            selected_modes.extend(["raw_tide", "godin_notide", "fes2022_notide"])
         else:
             selected_modes.append(m)
     # Deduplicate while preserving order

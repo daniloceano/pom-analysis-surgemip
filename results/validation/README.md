@@ -9,11 +9,11 @@ Each subdirectory corresponds to one observation treatment + model comparison pa
 
 The validation distinguishes three contexts:
 
-| Context | Obs treatment | Model target | Purpose |
-|---------|--------------|--------------|---------|
-| Descriptive | raw (with tide) | POM tide | Tidal characterisation |
-| Surge validation | Godin-detided | POM no-tide | Surge skill metrics |
-| Surge validation | FES2022-detided | POM no-tide | Surge skill metrics |
+| Context | Obs treatment | Model target | Directory | Purpose |
+|---------|--------------|--------------|-----------|---------|
+| Descriptive | raw (with tide) | POM tide | `raw_tide/` | Tidal characterisation |
+| Surge validation | Godin-detided | POM no-tide | `godin_notide/` | Surge skill metrics |
+| Surge validation | FES2022-detided | POM no-tide | `fes2022_notide/` | Surge skill metrics |
 
 **Key rule:** comparing detided observations against POM no-tide gives meaningful
 surge skill scores (RMSE, bias, Pearson r). Comparing raw observations (with tide)
@@ -23,14 +23,14 @@ a surge validation metric.
 Note: `POM tide detided = POM tide − model tidal signal ≈ POM no-tide`, because
 the POM tide run uses FES2022 harmonic forcing. Therefore, comparing
 `obs_detided vs POM tide_detided` is mathematically equivalent to comparing
-`obs_detided vs POM no-tide`, which is already what godin_filter and
-minus_fes_tide modes implement.
+`obs_detided vs POM no-tide`, which is already what `godin_notide` and
+`fes2022_notide` modes implement.
 
 ---
 
-## raw/
+## raw_tide/
 
-**File:** `raw/station_metrics.csv`
+**File:** `raw_tide/station_metrics.csv`
 
 **Observation treatment:** none — raw GESLA sea level (includes astronomical tide)
 
@@ -46,14 +46,14 @@ minus_fes_tide modes implement.
 
 **How to re-generate:**
 ```bash
-python scripts/pipeline/run_gesla_validation_pipeline.py --mode raw --force-metrics
+python scripts/pipeline/run_gesla_validation_pipeline.py --mode raw_tide --force-metrics
 ```
 
 ---
 
-## godin_filter/
+## godin_notide/
 
-**File:** `godin_filter/station_metrics.csv`
+**File:** `godin_notide/station_metrics.csv`
 
 **Observation treatment:** Godin (1972) low-pass filter
 - Three-pass centred running means: 24 h + 24 h + 25 h
@@ -71,14 +71,14 @@ the subtidal (non-tidal) sea level.
 **How to re-generate:**
 ```bash
 python scripts/pipeline/run_gesla_validation_pipeline.py \
-    --mode godin_filter --force-detide --force-build --force-metrics
+    --mode godin_notide --force-detide --force-build --force-metrics
 ```
 
 ---
 
-## minus_fes_tide/
+## fes2022_notide/
 
-**File:** `minus_fes_tide/station_metrics.csv`
+**File:** `fes2022_notide/station_metrics.csv`
 
 **Observation treatment:** FES2022 harmonic tide subtraction
 - FES2022 tide predicted at each station location using `eo-tides`
@@ -95,7 +95,7 @@ python scripts/pipeline/run_gesla_validation_pipeline.py \
 **How to re-generate:**
 ```bash
 python scripts/pipeline/run_gesla_validation_pipeline.py \
-    --mode minus_fes_tide --force-detide --force-build --force-metrics
+    --mode fes2022_notide --force-detide --force-build --force-metrics
 ```
 
 ---
@@ -116,5 +116,5 @@ python scripts/pipeline/run_gesla_validation_pipeline.py \
 | `obs_mean_m`, `obs_std_m`, `obs_max_m` | Observation statistics |
 | `model_notide_mean_m`, …_std_m, …_max_m | POM no-tide statistics |
 | `rmse_notide`, `bias_notide`, `pearson_r_notide` | Obs vs POM no-tide skill |
-| `model_tide_mean_m`, …_std_m, …_max_m` | POM tide statistics (raw only) |
-| `rmse_tide`, `bias_tide`, `pearson_r_tide` | Obs vs POM tide skill (raw only) |
+| `model_tide_mean_m`, …_std_m, …_max_m` | POM tide statistics (raw_tide only) |
+| `rmse_tide`, `bias_tide`, `pearson_r_tide` | Obs vs POM tide skill (raw_tide only) |

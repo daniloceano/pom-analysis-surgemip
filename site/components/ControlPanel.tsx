@@ -17,19 +17,19 @@ const MODE_CONTEXT: Record<ValidationMode, {
   note: string;
   noteClass: string;
 }> = {
-  raw: {
+  raw_tide: {
     label: "Raw (no treatment)",
     comparison: "obs (with tide)  vs  POM tide",
     note: "Descriptive only — observations include the astronomical tidal signal. Not suitable for surge validation.",
     noteClass: "bg-amber-50 border-amber-200 text-amber-800",
   },
-  godin_filter: {
+  godin_notide: {
     label: "Godin filter (1972)",
     comparison: "obs (Godin-detided)  vs  POM no-tide",
     note: "Surge validation — 24 h + 24 h + 25 h low-pass filter removes tidal periods. Only valid for hourly or coarser data.",
     noteClass: "bg-emerald-50 border-emerald-200 text-emerald-800",
   },
-  minus_fes_tide: {
+  fes2022_notide: {
     label: "FES2022 subtraction",
     comparison: "obs (FES2022-detided)  vs  POM no-tide",
     note: "Surge validation — FES2022 harmonic tide prediction subtracted from observations. Removes astronomical tidal signal.",

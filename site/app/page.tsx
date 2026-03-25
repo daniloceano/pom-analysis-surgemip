@@ -26,20 +26,20 @@ const TimeSeriesChart = dynamic(() => import("@/components/TimeSeriesChart"), {
   ),
 });
 
-const DEFAULT_MODE: ValidationMode = "godin_filter";
+const DEFAULT_MODE: ValidationMode = "godin_notide";
 
 // Labels for the observation treatment selector
 const OBS_TREATMENT_LABELS: Record<ValidationMode, { short: string; full: string }> = {
-  raw:            { short: "Raw",     full: "No treatment — obs includes tidal signal" },
-  godin_filter:   { short: "Godin",   full: "Godin filter (1972) — tidal signal removed" },
-  minus_fes_tide: { short: "FES2022", full: "FES2022 harmonics subtracted — tidal signal removed" },
+  raw_tide:       { short: "Raw",     full: "No treatment — obs includes tidal signal" },
+  godin_notide:   { short: "Godin",   full: "Godin filter (1972) — tidal signal removed" },
+  fes2022_notide: { short: "FES2022", full: "FES2022 harmonics subtracted — tidal signal removed" },
 };
 
 // Visual tags distinguishing descriptive from validation contexts
 const MODE_TAG: Record<ValidationMode, { text: string; className: string }> = {
-  raw:            { text: "Descriptive",     className: "bg-amber-100 text-amber-800" },
-  godin_filter:   { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
-  minus_fes_tide: { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
+  raw_tide:       { text: "Descriptive",     className: "bg-amber-100 text-amber-800" },
+  godin_notide:   { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
+  fes2022_notide: { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
 };
 
 export default function Home() {
@@ -81,7 +81,7 @@ export default function Home() {
     setSelectedStation(station);
   }, []);
 
-  const modesAvailable = stationData?.modes_available ?? ["raw"];
+  const modesAvailable = stationData?.modes_available ?? ["raw_tide"];
 
   const tag = MODE_TAG[mode];
 
@@ -108,7 +108,7 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400 whitespace-nowrap">Obs. treatment:</span>
             <div className="flex gap-1">
-              {(["raw", "godin_filter", "minus_fes_tide"] as ValidationMode[]).map((m) => {
+              {(["raw_tide", "godin_notide", "fes2022_notide"] as ValidationMode[]).map((m) => {
                 const available = modesAvailable.includes(m);
                 const lbl = OBS_TREATMENT_LABELS[m];
                 return (

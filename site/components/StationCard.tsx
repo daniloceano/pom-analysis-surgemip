@@ -26,17 +26,17 @@ function MetricRow({ label, value, unit = "" }: { label: string; value: number |
 
 // Section header + context badge for each observation treatment
 const MODE_SECTION: Record<ValidationMode, { header: string; badge: string; badgeClass: string }> = {
-  raw: {
+  raw_tide: {
     header: "Descriptive metrics",
     badge: "obs with tide",
     badgeClass: "bg-amber-100 text-amber-700",
   },
-  godin_filter: {
+  godin_notide: {
     header: "Surge validation metrics",
     badge: "Godin-detided",
     badgeClass: "bg-emerald-100 text-emerald-700",
   },
-  minus_fes_tide: {
+  fes2022_notide: {
     header: "Surge validation metrics",
     badge: "FES2022-detided",
     badgeClass: "bg-emerald-100 text-emerald-700",
@@ -93,7 +93,7 @@ export default function StationCard({ station, mode }: Props) {
             <tbody>
               <MetricRow label="Valid samples" value={m.n_valid} />
 
-              {mode === "raw" ? (
+              {mode === "raw_tide" ? (
                 // Raw mode: show tidal comparison metrics (descriptive)
                 <>
                   <MetricRow label="RMSE — raw vs POM tide"  value={m.rmse_tide}       unit=" m" />
@@ -116,7 +116,7 @@ export default function StationCard({ station, mode }: Props) {
           </table>
 
           {/* Note for raw mode to prevent misinterpretation */}
-          {mode === "raw" && (
+          {mode === "raw_tide" && (
             <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 leading-relaxed">
               Obs. mean and max include the tidal signal. Switch to Godin or FES2022 for surge-only statistics.
             </p>

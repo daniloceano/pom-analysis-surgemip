@@ -6,12 +6,12 @@ new per-station CSVs ready for de-tided validation.
 
 Two independent methods are supported:
 
-  godin_filter
+  godin
     Apply the Godin (1972) low-pass filter (24 h + 24 h + 25 h running
     means) to each observation series.  Returns the *subtidal* signal
     (storm surge + mean sea level).  No external model is required.
 
-  minus_fes_tide
+  fes2022
     Predict the astronomical tide at each station location with the FES2022
     harmonic model (via ``eo-tides`` / ``pyTMD``) and subtract it from the
     observation.  Requires the clipped tide-model NetCDF files at
@@ -26,13 +26,13 @@ two modifications:
   * ``sea_level_obs_raw_m`` – original (tidal) sea level, preserved for
                               reference and provenance
 
-For ``minus_fes_tide`` an additional column is written:
+For ``fes2022`` an additional column is written:
   * ``fes_tide_m``          – predicted astronomical tide [m]
 
 Output directories
 ------------------
-  godin_filter   → data/processed/gesla/observations_godin/
-  minus_fes_tide → data/processed/gesla/observations_fes/
+  godin   → data/processed/gesla/observations_godin/
+  fes2022 → data/processed/gesla/observations_fes/
 
 Usage
 -----
@@ -40,12 +40,12 @@ Usage
     python scripts/validation/apply_tidal_detiding.py
 
     # Single method:
-    python scripts/validation/apply_tidal_detiding.py --method godin_filter
-    python scripts/validation/apply_tidal_detiding.py --method minus_fes_tide
+    python scripts/validation/apply_tidal_detiding.py --method godin
+    python scripts/validation/apply_tidal_detiding.py --method fes2022
 
     # Single station (useful for testing):
     python scripts/validation/apply_tidal_detiding.py \\
-        --method godin_filter --station san_francisco_ca-551a-usa-uhslc
+        --method godin --station san_francisco_ca-551a-usa-uhslc
 
     # Overwrite existing outputs:
     python scripts/validation/apply_tidal_detiding.py --force
@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--method",
         default="all",
-        choices=["all", "godin_filter", "minus_fes_tide"],
+        choices=["all", "godin", "fes2022"],
         help=(
             "Detiding method to apply.  'all' runs both methods.  "
             "(default: all)"
@@ -121,7 +121,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=50,
-        help="Parallel threads for godin_filter.  FES is always sequential. (default: 50)",
+        help="Parallel threads for godin.  FES2022 is always sequential. (default: 50)",
     )
     p.add_argument(
         "--force",
@@ -316,8 +316,8 @@ def main() -> None:
 
     logger.info("Found %d stations in %s", len(all_files), obs_dir)
 
-    run_godin = args.method in ("all", "godin_filter")
-    run_fes   = args.method in ("all", "minus_fes_tide")
+    run_godin = args.method in ("all", "godin")
+    run_fes   = args.method in ("all", "fes2022")
 
     # ---- Godin filter (parallel via ThreadPoolExecutor) --------------------
     if run_godin:
@@ -350,7 +350,7 @@ def main() -> None:
                         status = "error"
                     counts[status] = counts.get(status, 0) + 1
 
-            _log_counts("godin_filter", counts)
+            _log_counts("godin", counts)
 
     # ---- FES tide prediction (sequential — NetCDF I/O not guaranteed thread-safe)
     if run_fes:
@@ -376,7 +376,7 @@ def main() -> None:
                 )
                 counts_fes[status] = counts_fes.get(status, 0) + 1
 
-            _log_counts("minus_fes_tide", counts_fes)
+            _log_counts("fes2022", counts_fes)
 
     logger.info("")
     logger.info("Detiding complete.")

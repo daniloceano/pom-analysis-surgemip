@@ -204,20 +204,21 @@ GESLA_RAW_DIR  = DATA_DIR / "gesla" / "raw"      # downloaded ZIP or extracted f
 GESLA_OBS_DIR  = PROCESSED_DIR / "gesla" / "observations"
 GESLA_MANIFEST = PROCESSED_DIR / "gesla" / "stations_manifest.csv"
 
-# Validation outputs
+# Validation outputs — naming convention: <obs_treatment>_<model_target>
+#   raw_tide:      obs_raw (with tide)  vs  model_eta_tide    — descriptive
+#   godin_notide:  obs_godin (detided)  vs  model_eta_notide  — surge validation
+#   fes2022_notide:obs_fes  (detided)   vs  model_eta_notide  — surge validation
 VALIDATION_DIR        = PROCESSED_DIR / "validation"
 STATION_MODEL_INDEX   = VALIDATION_DIR / "station_model_index.csv"
-GESLA_VS_MODEL_DIR    = VALIDATION_DIR / "gesla_vs_model"
+GESLA_VS_MODEL_DIR    = VALIDATION_DIR / "raw_tide" / "gesla_vs_model"
 
 for _d in [GESLA_OBS_DIR, VALIDATION_DIR, GESLA_VS_MODEL_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
-# Results — organised by observation treatment + model target
-# See results/validation/README.md for a description of each subdirectory.
+# Results — one subdirectory per comparison type
+# See results/validation/README.md for a full description of each.
 RESULTS_VALID_DIR       = RESULTS_DIR / "validation"
-
-# raw/: descriptive — obs_raw vs model_tide (and obs_raw vs model_notide, informational)
-VALID_RAW_DIR           = RESULTS_VALID_DIR / "raw"
+VALID_RAW_DIR           = RESULTS_VALID_DIR / "raw_tide"
 STATION_METRICS_CSV     = VALID_RAW_DIR / "station_metrics.csv"
 STATION_METRICS_PARQUET = VALID_RAW_DIR / "station_metrics.parquet"
 
@@ -240,26 +241,25 @@ GESLA_QC_GOOD_FLAGS      = {1}        # QC flags considered "good quality" obser
 GESLA_USE_GOOD_FLAGS     = {1}        # use-flags considered "recommended for use"
 
 # ---------------------------------------------------------------------------
-# Tidal detiding — new validation modes
+# Tidal detiding outputs and surge-validation paths
 # ---------------------------------------------------------------------------
 
-# Detided observation directories (sea_level_obs_m = detided value)
+# Detided observation staging directories (intermediate products)
 GESLA_OBS_GODIN_DIR = PROCESSED_DIR / "gesla" / "observations_godin"
 GESLA_OBS_FES_DIR   = PROCESSED_DIR / "gesla" / "observations_fes"
 
-# Comparison CSVs per validation mode
-VALID_GODIN_DIR     = VALIDATION_DIR / "godin_filter"   / "gesla_vs_model"
-VALID_FES_DIR       = VALIDATION_DIR / "minus_fes_tide" / "gesla_vs_model"
+# Comparison CSV directories — one per comparison type
+VALID_GODIN_DIR     = VALIDATION_DIR / "godin_notide"    / "gesla_vs_model"
+VALID_FES_DIR       = VALIDATION_DIR / "fes2022_notide"  / "gesla_vs_model"
 
-# godin_filter/: surge validation — obs_godin vs model_notide
-# minus_fes_tide/: surge validation — obs_fes vs model_notide
-STATION_METRICS_GODIN_CSV = RESULTS_VALID_DIR / "godin_filter"   / "station_metrics.csv"
-STATION_METRICS_FES_CSV   = RESULTS_VALID_DIR / "minus_fes_tide" / "station_metrics.csv"
+# Metrics CSVs — one per comparison type
+STATION_METRICS_GODIN_CSV = RESULTS_VALID_DIR / "godin_notide"   / "station_metrics.csv"
+STATION_METRICS_FES_CSV   = RESULTS_VALID_DIR / "fes2022_notide" / "station_metrics.csv"
 
-# Figure directories per validation mode
-FIG_VALID_RAW_DIR   = FIG_VALID_DIR / "raw"
-FIG_VALID_GODIN_DIR = FIG_VALID_DIR / "godin_filter"
-FIG_VALID_FES_DIR   = FIG_VALID_DIR / "minus_fes_tide"
+# Figure directories — one per comparison type
+FIG_VALID_RAW_DIR   = FIG_VALID_DIR / "raw_tide"
+FIG_VALID_GODIN_DIR = FIG_VALID_DIR / "godin_notide"
+FIG_VALID_FES_DIR   = FIG_VALID_DIR / "fes2022_notide"
 
 # Tide model data
 TIDE_MODELS_DIR = DATA_DIR / "tide_models_clipped_brasil"
