@@ -212,12 +212,16 @@ GESLA_VS_MODEL_DIR    = VALIDATION_DIR / "gesla_vs_model"
 for _d in [GESLA_OBS_DIR, VALIDATION_DIR, GESLA_VS_MODEL_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
-# Results
+# Results — organised by observation treatment + model target
+# See results/validation/README.md for a description of each subdirectory.
 RESULTS_VALID_DIR       = RESULTS_DIR / "validation"
-STATION_METRICS_CSV     = RESULTS_VALID_DIR / "station_metrics.csv"
-STATION_METRICS_PARQUET = RESULTS_VALID_DIR / "station_metrics.parquet"
 
-for _d in [RESULTS_VALID_DIR]:
+# raw/: descriptive — obs_raw vs model_tide (and obs_raw vs model_notide, informational)
+VALID_RAW_DIR           = RESULTS_VALID_DIR / "raw"
+STATION_METRICS_CSV     = VALID_RAW_DIR / "station_metrics.csv"
+STATION_METRICS_PARQUET = VALID_RAW_DIR / "station_metrics.parquet"
+
+for _d in [RESULTS_VALID_DIR, VALID_RAW_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 # GESLA-4 dataset download URL
@@ -247,7 +251,8 @@ GESLA_OBS_FES_DIR   = PROCESSED_DIR / "gesla" / "observations_fes"
 VALID_GODIN_DIR     = VALIDATION_DIR / "godin_filter"   / "gesla_vs_model"
 VALID_FES_DIR       = VALIDATION_DIR / "minus_fes_tide" / "gesla_vs_model"
 
-# Metrics CSVs per validation mode
+# godin_filter/: surge validation — obs_godin vs model_notide
+# minus_fes_tide/: surge validation — obs_fes vs model_notide
 STATION_METRICS_GODIN_CSV = RESULTS_VALID_DIR / "godin_filter"   / "station_metrics.csv"
 STATION_METRICS_FES_CSV   = RESULTS_VALID_DIR / "minus_fes_tide" / "station_metrics.csv"
 

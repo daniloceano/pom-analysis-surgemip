@@ -37,8 +37,12 @@ data/processed/
 # Figures (reproducible from scripts)
 figures/
 
-# Results (reproducible from scripts)
-results/
+# Results — data files are reproducible from scripts; commit only docs
+results/**/*.csv
+results/**/*.parquet
+results/**/*.nc
+results/**/*.npy
+results/**/*.png
 
 # ---------------------------------------------------------------------------
 # OS / editor artefacts
