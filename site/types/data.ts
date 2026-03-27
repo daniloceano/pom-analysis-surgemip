@@ -1,27 +1,30 @@
 // ──────────────────────────────────────────────────────────────────────────────
 // data.ts — Types and metric registry for the POM/GESLA-4 Validation Explorer
 //
-// Observation treatment (ValidationMode) describes what was done to the GESLA
-// tide-gauge series before comparison with the model:
+// Four validation modes (observation treatment × model target):
 //
-//   "raw_tide"        — no treatment; obs includes astronomical tidal signal.
-//                       Used for DESCRIPTIVE visualisation only.
-//                       Valid comparison: obs_raw  vs  POM tide (model_eta_tide)
-//                       ⚠ Comparing obs_raw vs POM no-tide is NOT a surge metric.
+//   "godin_tide"    — obs detided with Godin filter; compared with POM_tide
+//                     detided with Godin filter.
+//                     POM_tide_godin ≈ POM_notide (tidal component is removed).
+//                     Surge validation via consistent filter on both.
 //
-//   "godin_notide"    — tidal signal removed using the Godin (1972) low-pass
-//                       filter (24h + 24h + 25h running means).
-//                       Valid comparison: obs_detided  vs  POM no-tide  ✓ SURGE
+//   "fes2022_tide"  — obs detided via FES2022 subtraction; compared with
+//                     POM_tide with FES2022 subtracted.
+//                     POM_tide_fes2022 ≈ POM_notide (FES2022 was POM's forcing).
+//                     Surge validation via consistent subtraction on both.
 //
-//   "fes2022_notide"  — astronomical tide predicted by FES2022 harmonic model
-//                       subtracted from observations.
-//                       Valid comparison: obs_detided  vs  POM no-tide  ✓ SURGE
+//   "godin_notide"  — obs detided with Godin filter; compared directly with
+//                     POM_notide (no-tide run = meteorological sea level only).
+//                     Surge validation — obs detided, model needs no treatment.
 //
-// Note on "POM tide detided":
-//   model_tide_detided = model_eta_tide − model_tide_minus_notide = model_eta_notide
-//   Therefore comparing obs_detided vs model_tide_detided is mathematically
-//   identical to comparing obs_detided vs model_notide, which is already what
-//   godin_notide and fes2022_notide modes implement.
+//   "fes2022_notide"— obs detided via FES2022 subtraction; compared directly
+//                     with POM_notide.
+//                     Surge validation — obs detided, model needs no treatment.
+//
+// Time-series visualisation:
+//   Regardless of mode, the chart ALWAYS shows raw GESLA obs + POM_tide.
+//   Both signals include the tidal component, making them visually comparable.
+//   Mode selection only affects the metric maps and StationCard metrics.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface RawMetrics {
@@ -35,7 +38,7 @@ export interface RawMetrics {
   rmse_notide: number | null;
   bias_notide: number | null;
   pearson_r_notide: number | null;
-  // Only present in raw mode (obs includes tidal signal)
+  // Present only in raw_tide descriptive mode
   model_tide_mean_m?: number | null;
   model_tide_std_m?: number | null;
   model_tide_max_m?: number | null;
@@ -55,9 +58,12 @@ export interface Station {
   model_lat: number | null;
   distance_km: number | null;
   metrics: {
-    raw_tide?: RawMetrics;
-    godin_notide?: RawMetrics;
-    fes2022_notide?: RawMetrics;
+    godin_tide?:    RawMetrics;
+    fes2022_tide?:  RawMetrics;
+    godin_notide?:  RawMetrics;
+    fes2022_notide?:RawMetrics;
+    // raw_tide kept for backwards compatibility (descriptive mode)
+    raw_tide?:      RawMetrics;
   };
 }
 
@@ -68,21 +74,22 @@ export interface StationData {
 
 export interface TimeSeriesData {
   station_id: string;
-  mode: string;
   dates: string[];
-  obs: (number | null)[];
-  notide?: (number | null)[];
-  tide?: (number | null)[];
+  obs:    (number | null)[];   // raw GESLA observation (with tide)
+  tide?:  (number | null)[];   // POM_tide daily mean
+  notide?:(number | null)[];   // POM_notide daily mean (surge reference)
 }
 
-export type ValidationMode = "raw_tide" | "godin_notide" | "fes2022_notide";
+export type ValidationMode =
+  | "godin_tide"
+  | "fes2022_tide"
+  | "godin_notide"
+  | "fes2022_notide";
 
 export type MetricKey =
   | "rmse_notide" | "bias_notide" | "pearson_r_notide"
-  | "rmse_tide" | "bias_tide" | "pearson_r_tide"
-  | "obs_mean_m" | "obs_max_m"
+  | "obs_mean_m"  | "obs_max_m"
   | "model_notide_mean_m" | "model_notide_max_m"
-  | "model_tide_mean_m" | "model_tide_max_m"
   | "n_valid";
 
 export interface MetricInfo {
@@ -95,43 +102,55 @@ export interface MetricInfo {
 }
 
 export const METRIC_DEFS: Record<MetricKey, MetricInfo> = {
-  // ── Surge validation metrics ──────────────────────────────────────────────
-  // Only valid when obs has been detided (godin_notide or fes2022_notide).
-  // In raw mode, rmse_notide = RMSE(obs_with_tide, model_notide) is dominated
-  // by the tidal signal and DOES NOT represent surge skill.
-  rmse_notide:         { label: "RMSE — obs detided vs POM no-tide",  unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["godin_notide", "fes2022_notide"] },
-  bias_notide:         { label: "Bias — obs detided vs POM no-tide",  unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["godin_notide", "fes2022_notide"] },
-  pearson_r_notide:    { label: "Pearson r — surge validation",       unit: "",  colorScale: "RdYlGn", symmetric: false, modesAvailable: ["godin_notide", "fes2022_notide"] },
+  // ── Surge validation metrics (detided obs vs detided/no-tide model) ────────
+  rmse_notide:         { label: "RMSE — surge validation",         unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
+  bias_notide:         { label: "Bias — surge validation",         unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
+  pearson_r_notide:    { label: "Pearson r — surge validation",    unit: "",  colorScale: "RdYlGn", symmetric: false, modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
 
-  // ── Descriptive metrics (raw obs vs POM tide) ─────────────────────────────
-  // Both obs and model include the tidal signal → useful for tidal
-  // characterisation, NOT for surge validation.
-  rmse_tide:           { label: "RMSE — obs raw vs POM tide",         unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["raw_tide"] },
-  bias_tide:           { label: "Bias — obs raw vs POM tide",         unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["raw_tide"] },
-  pearson_r_tide:      { label: "Pearson r — tidal signal",           unit: "",  colorScale: "RdYlGn", symmetric: false, modesAvailable: ["raw_tide"] },
+  // ── Observation statistics ─────────────────────────────────────────────────
+  obs_mean_m:          { label: "Obs mean (detided)",              unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
+  obs_max_m:           { label: "Obs max |η| (detided)",           unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
 
-  // ── Observation statistics (available in all modes) ───────────────────────
-  // Note: in raw_tide mode obs_mean/max include tidal signal; in detided modes
-  // they reflect the residual (surge) signal statistics.
-  obs_mean_m:          { label: "Obs mean",                           unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["raw_tide", "godin_notide", "fes2022_notide"] },
-  obs_max_m:           { label: "Obs max |η|",                        unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["raw_tide", "godin_notide", "fes2022_notide"] },
-
-  // ── Model statistics — no-tide / surge ────────────────────────────────────
-  // Shown only with detided obs modes to maintain conceptual consistency.
-  model_notide_mean_m: { label: "POM no-tide mean (surge)",           unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["godin_notide", "fes2022_notide"] },
-  model_notide_max_m:  { label: "POM no-tide max |η| (surge)",        unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["godin_notide", "fes2022_notide"] },
-
-  // ── Model statistics — tide ───────────────────────────────────────────────
-  model_tide_mean_m:   { label: "POM tide mean",                      unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["raw_tide"] },
-  model_tide_max_m:    { label: "POM tide max |η|",                   unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["raw_tide"] },
+  // ── Model surge statistics ─────────────────────────────────────────────────
+  model_notide_mean_m: { label: "Model surge mean",                unit: "m", colorScale: "RdBu",   symmetric: true,  modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
+  model_notide_max_m:  { label: "Model surge max |η|",             unit: "m", colorScale: "YlOrRd", symmetric: false, modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
 
   // ── Data coverage ─────────────────────────────────────────────────────────
-  n_valid:             { label: "Valid samples",                      unit: "",  colorScale: "Blues",   symmetric: false, modesAvailable: ["raw_tide", "godin_notide", "fes2022_notide"] },
+  n_valid:             { label: "Valid samples",                   unit: "",  colorScale: "Blues",   symmetric: false, modesAvailable: ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"] },
 };
 
-// Default metric for each observation treatment
+// Human-readable labels for each validation mode
+export const MODE_LABELS: Record<ValidationMode, { short: string; full: string; badge: string; badgeClass: string }> = {
+  godin_tide:    {
+    short: "Godin / tide",
+    full:  "Godin filter applied to obs and POM_tide",
+    badge: "obs Godin · model tide Godin",
+    badgeClass: "bg-indigo-100 text-indigo-800",
+  },
+  fes2022_tide:  {
+    short: "FES / tide",
+    full:  "FES2022 subtracted from obs and POM_tide",
+    badge: "obs FES2022 · model tide FES2022",
+    badgeClass: "bg-violet-100 text-violet-800",
+  },
+  godin_notide:  {
+    short: "Godin / no-tide",
+    full:  "Godin filter on obs; compared with POM_notide",
+    badge: "obs Godin · model no-tide",
+    badgeClass: "bg-emerald-100 text-emerald-800",
+  },
+  fes2022_notide:{
+    short: "FES / no-tide",
+    full:  "FES2022 subtracted from obs; compared with POM_notide",
+    badge: "obs FES2022 · model no-tide",
+    badgeClass: "bg-teal-100 text-teal-800",
+  },
+};
+
+// Default metric for each mode (all are surge validation → rmse_notide)
 export const DEFAULT_METRIC: Record<ValidationMode, MetricKey> = {
-  raw_tide:        "rmse_tide",      // descriptive: tidal RMSE
-  godin_notide:    "rmse_notide",    // validation: surge RMSE
-  fes2022_notide:  "rmse_notide",    // validation: surge RMSE
+  godin_tide:    "rmse_notide",
+  fes2022_tide:  "rmse_notide",
+  godin_notide:  "rmse_notide",
+  fes2022_notide:"rmse_notide",
 };

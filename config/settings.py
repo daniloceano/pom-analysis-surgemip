@@ -249,17 +249,23 @@ GESLA_OBS_GODIN_DIR = PROCESSED_DIR / "gesla" / "observations_godin"
 GESLA_OBS_FES_DIR   = PROCESSED_DIR / "gesla" / "observations_fes"
 
 # Comparison CSV directories — one per comparison type
-VALID_GODIN_DIR     = VALIDATION_DIR / "godin_notide"    / "gesla_vs_model"
-VALID_FES_DIR       = VALIDATION_DIR / "fes2022_notide"  / "gesla_vs_model"
+VALID_GODIN_DIR       = VALIDATION_DIR / "godin_notide"    / "gesla_vs_model"
+VALID_FES_DIR         = VALIDATION_DIR / "fes2022_notide"  / "gesla_vs_model"
+VALID_GODIN_TIDE_DIR  = VALIDATION_DIR / "godin_tide"      / "gesla_vs_model"
+VALID_FES_TIDE_DIR    = VALIDATION_DIR / "fes2022_tide"    / "gesla_vs_model"
 
 # Metrics CSVs — one per comparison type
-STATION_METRICS_GODIN_CSV = RESULTS_VALID_DIR / "godin_notide"   / "station_metrics.csv"
-STATION_METRICS_FES_CSV   = RESULTS_VALID_DIR / "fes2022_notide" / "station_metrics.csv"
+STATION_METRICS_GODIN_CSV      = RESULTS_VALID_DIR / "godin_notide"   / "station_metrics.csv"
+STATION_METRICS_FES_CSV        = RESULTS_VALID_DIR / "fes2022_notide" / "station_metrics.csv"
+STATION_METRICS_GODIN_TIDE_CSV = RESULTS_VALID_DIR / "godin_tide"     / "station_metrics.csv"
+STATION_METRICS_FES_TIDE_CSV   = RESULTS_VALID_DIR / "fes2022_tide"   / "station_metrics.csv"
 
 # Figure directories — one per comparison type
-FIG_VALID_RAW_DIR   = FIG_VALID_DIR / "raw_tide"
-FIG_VALID_GODIN_DIR = FIG_VALID_DIR / "godin_notide"
-FIG_VALID_FES_DIR   = FIG_VALID_DIR / "fes2022_notide"
+FIG_VALID_RAW_DIR        = FIG_VALID_DIR / "raw_tide"
+FIG_VALID_GODIN_DIR      = FIG_VALID_DIR / "godin_notide"
+FIG_VALID_FES_DIR        = FIG_VALID_DIR / "fes2022_notide"
+FIG_VALID_GODIN_TIDE_DIR = FIG_VALID_DIR / "godin_tide"
+FIG_VALID_FES_TIDE_DIR   = FIG_VALID_DIR / "fes2022_tide"
 
 # Tide model data
 TIDE_MODELS_DIR = DATA_DIR / "tide_models_clipped_brasil"
@@ -267,9 +273,11 @@ FES_MODEL_NAME  = "FES2022"   # identifier passed to eo-tides / pyTMD
 
 for _d in [
     GESLA_OBS_GODIN_DIR, GESLA_OBS_FES_DIR,
-    VALID_GODIN_DIR, VALID_FES_DIR,
+    VALID_GODIN_DIR, VALID_FES_DIR, VALID_GODIN_TIDE_DIR, VALID_FES_TIDE_DIR,
     STATION_METRICS_GODIN_CSV.parent, STATION_METRICS_FES_CSV.parent,
+    STATION_METRICS_GODIN_TIDE_CSV.parent, STATION_METRICS_FES_TIDE_CSV.parent,
     FIG_VALID_RAW_DIR, FIG_VALID_GODIN_DIR, FIG_VALID_FES_DIR,
+    FIG_VALID_GODIN_TIDE_DIR, FIG_VALID_FES_TIDE_DIR,
 ]:
     _d.mkdir(parents=True, exist_ok=True)
 

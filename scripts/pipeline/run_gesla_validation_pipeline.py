@@ -6,12 +6,13 @@ One-command orchestrator for the full GESLA-4 / POM validation workflow.
 Stages
 ------
   Stage 1   – Check / download / extract GESLA-4 data
-  Stage 2   – Prepare GESLA observation CSVs            (parallelised)
-  Stage 3   – Extract model time series for all stations (parallelised)
-  Stage 3.5 – Apply tidal detiding to observations       (non-raw modes only)
-  Stage 4   – Build observation-vs-model comparison CSVs (parallelised, per mode)
-  Stage 5   – Compute per-station validation metrics     (per mode)
-  Stage 6   – Generate station-map figures               (per mode)
+  Stage 2   – Prepare GESLA observation CSVs             (parallelised)
+  Stage 3   – Extract model time series for all stations  (parallelised)
+  Stage 3.5 – Apply tidal detiding to observations        (non-raw modes only)
+  Stage 4   – Build observation-vs-model comparison CSVs  (parallelised, per mode)
+  Stage 4b  – Build tide-derived comparison CSVs          (godin_tide / fes2022_tide)
+  Stage 5   – Compute per-station validation metrics      (per mode)
+  Stage 6   – Generate station-map figures                (per mode)
 
 Validation modes (--mode)
 -------------------------
@@ -19,13 +20,16 @@ Validation modes (--mode)
                    model_eta_notide for reference).  No detiding applied.
                    Descriptive only — not a surge validation metric.
   godin_notide   – Godin (1972) low-pass filter (24 h + 24 h + 25 h running
-                   means) removes astronomical tide from observations.
-                   De-tided obs compared only to model_eta_notide (storm
-                   surge validation).
-  fes2022_notide – FES2022 astronomical tide predicted at each station with
-                   eo-tides and subtracted from observations.  De-tided obs
-                   compared only to model_eta_notide (surge validation).
-  all            – Run all three modes in sequence.
+                   means) applied to observations.  De-tided obs vs POM_notide.
+  fes2022_notide – FES2022 tidal prediction subtracted from observations.
+                   De-tided obs vs POM_notide (surge validation).
+  godin_tide     – Godin filter applied to obs AND POM_tide.  Cross-check:
+                   POM_tide_godin ≈ POM_notide (tidal component removed).
+                   Requires godin_notide to be built first (Stage 4b).
+  fes2022_tide   – FES2022 subtracted from obs AND POM_tide.  Cross-check:
+                   POM_tide_fes ≈ POM_notide (POM was forced with FES2022).
+                   Requires fes2022_notide to be built first (Stage 4b).
+  all            – Run all five modes in sequence.
 
 Stages 1–3 always run (shared inputs across modes).  Stage 3.5 and Stages
 4–6 repeat for each selected mode.
@@ -58,12 +62,12 @@ Usage
     # Raw mode only (default — skip completed stages):
     python scripts/pipeline/run_gesla_validation_pipeline.py
 
-    # All three validation modes:
+    # All five validation modes:
     python scripts/pipeline/run_gesla_validation_pipeline.py --mode all
 
     # Specific modes only:
     python scripts/pipeline/run_gesla_validation_pipeline.py \\
-        --mode godin_notide fes2022_notide
+        --mode godin_notide fes2022_notide godin_tide fes2022_tide
 
     # Force all stages from scratch (all modes):
     python scripts/pipeline/run_gesla_validation_pipeline.py --mode all --force-all
@@ -117,13 +121,19 @@ from config.settings import (
     GESLA_VS_MODEL_DIR,
     VALID_GODIN_DIR,
     VALID_FES_DIR,
+    VALID_GODIN_TIDE_DIR,
+    VALID_FES_TIDE_DIR,
     STATION_METRICS_CSV,
     STATION_METRICS_GODIN_CSV,
     STATION_METRICS_FES_CSV,
+    STATION_METRICS_GODIN_TIDE_CSV,
+    STATION_METRICS_FES_TIDE_CSV,
     FIG_VALID_DIR,
     FIG_VALID_RAW_DIR,
     FIG_VALID_GODIN_DIR,
     FIG_VALID_FES_DIR,
+    FIG_VALID_GODIN_TIDE_DIR,
+    FIG_VALID_FES_TIDE_DIR,
 )
 from utils.gesla import load_station_list
 
@@ -152,9 +162,14 @@ GESLA_STATIONS_DIR = GESLA_RAW_DIR  / "stations"
 #                 (comparing de-tided obs against model_eta_tide would be
 #                  physically inconsistent)
 # Mode naming: <obs_treatment>_<model_target>
-#   raw_tide       – obs_raw (with tide)   vs  POM tide   — descriptive
-#   godin_notide   – obs_godin (detided)   vs  POM notide — surge validation
-#   fes2022_notide – obs_fes2022 (detided) vs  POM notide — surge validation
+#   raw_tide       – obs_raw (with tide)   vs  POM tide    — descriptive
+#   godin_notide   – obs_godin (detided)   vs  POM notide  — surge validation
+#   fes2022_notide – obs_fes2022 (detided) vs  POM notide  — surge validation
+#   godin_tide     – obs_godin (detided)   vs  POM_tide_godin  — cross-check
+#   fes2022_tide   – obs_fes (detided)     vs  POM_tide_fes    — cross-check
+#
+# For godin_tide and fes2022_tide, Stage 4 is replaced by stage4b_build_tide_modes
+# which calls build_tide_mode_comparisons.py.  Stage 5 and 6 proceed normally.
 VALIDATION_MODES: dict[str, dict] = {
     "raw_tide": {
         "obs_dir":     GESLA_OBS_DIR,
@@ -162,6 +177,7 @@ VALIDATION_MODES: dict[str, dict] = {
         "metrics_csv": STATION_METRICS_CSV,
         "fig_dir":     FIG_VALID_RAW_DIR,
         "targets":     "notide,tide",   # both: notide (informational) and tide (descriptive)
+        "tide_derived": False,
     },
     "godin_notide": {
         "obs_dir":     GESLA_OBS_GODIN_DIR,
@@ -169,6 +185,7 @@ VALIDATION_MODES: dict[str, dict] = {
         "metrics_csv": STATION_METRICS_GODIN_CSV,
         "fig_dir":     FIG_VALID_GODIN_DIR,
         "targets":     "notide",        # surge validation: detided obs vs POM notide
+        "tide_derived": False,
     },
     "fes2022_notide": {
         "obs_dir":     GESLA_OBS_FES_DIR,
@@ -176,6 +193,24 @@ VALIDATION_MODES: dict[str, dict] = {
         "metrics_csv": STATION_METRICS_FES_CSV,
         "fig_dir":     FIG_VALID_FES_DIR,
         "targets":     "notide",        # surge validation: detided obs vs POM notide
+        "tide_derived": False,
+    },
+    # ── Tide-derived modes: comparison CSVs built from existing godin_notide /
+    #    fes2022_notide CSVs by applying Godin filter / FES2022 subtraction to
+    #    model_eta_tide_m.  Stage 4 is replaced by stage4b_build_tide_modes.
+    "godin_tide": {
+        "comp_dir":    VALID_GODIN_TIDE_DIR,
+        "metrics_csv": STATION_METRICS_GODIN_TIDE_CSV,
+        "fig_dir":     FIG_VALID_GODIN_TIDE_DIR,
+        "targets":     "notide",        # model_eta_notide_m holds POM_tide_godin
+        "tide_derived": True,           # use stage4b instead of stage4
+    },
+    "fes2022_tide": {
+        "comp_dir":    VALID_FES_TIDE_DIR,
+        "metrics_csv": STATION_METRICS_FES_TIDE_CSV,
+        "fig_dir":     FIG_VALID_FES_TIDE_DIR,
+        "targets":     "notide",        # model_eta_notide_m holds POM_tide_fes
+        "tide_derived": True,           # use stage4b instead of stage4
     },
 }
 
@@ -271,15 +306,19 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         nargs="+",
         default=["raw_tide"],
-        choices=["raw_tide", "godin_notide", "fes2022_notide", "all"],
+        choices=["raw_tide", "godin_notide", "fes2022_notide",
+                 "godin_tide", "fes2022_tide", "all"],
         metavar="MODE",
         help=(
             "Which validation mode(s) to run for Stages 4–6.  "
-            "Choices: raw_tide | godin_notide | fes2022_notide | all.  "
-            "Multiple modes can be given: --mode raw_tide godin_notide.  "
-            "'all' expands to all three modes.  "
+            "Choices: raw_tide | godin_notide | fes2022_notide | "
+            "godin_tide | fes2022_tide | all.  "
+            "Multiple modes can be given: --mode godin_notide godin_tide.  "
+            "'all' expands to all five modes.  "
+            "godin_tide and fes2022_tide require godin_notide / fes2022_notide "
+            "to be built first (Stage 4b derives their CSVs from existing ones).  "
             "Stages 1–3 always run (they produce data shared by all modes).  "
-            "(default: raw)"
+            "(default: raw_tide)"
         ),
     )
 
@@ -778,6 +817,43 @@ def stage4_build_comparison(
 
 
 # ---------------------------------------------------------------------------
+# Stage 4b — Build tide-derived comparison CSVs (godin_tide / fes2022_tide)
+# ---------------------------------------------------------------------------
+
+def stage4b_build_tide_modes(
+    force: bool,
+    dry_run: bool,
+    mode_label: str,
+    station: str | None,
+    n_workers: int,
+) -> None:
+    """Build comparison CSVs for godin_tide / fes2022_tide by post-processing
+    existing godin_notide / fes2022_notide comparison CSVs."""
+    _stage_header(4, f"Build tide-derived comparison CSVs  [{mode_label}]")
+
+    if dry_run:
+        logger.info("[DRY-RUN] Would run build_tide_mode_comparisons.py --mode %s", mode_label)
+        return
+
+    import subprocess
+    script = _ROOT / "scripts" / "validation" / "build_tide_mode_comparisons.py"
+    cmd = [
+        sys.executable, str(script),
+        "--mode", mode_label,
+        "--workers", str(n_workers),
+    ]
+    if force:
+        cmd.append("--force")
+    if station:
+        cmd += ["--station", station]
+
+    logger.info("  Running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        logger.error("  build_tide_mode_comparisons.py exited with code %d", result.returncode)
+
+
+# ---------------------------------------------------------------------------
 # Stage 5 — Compute station metrics  (mode-aware)
 # ---------------------------------------------------------------------------
 
@@ -917,11 +993,14 @@ def main() -> None:
         args.force_metrics  = True
         args.force_maps     = True
 
-    # Expand "all" mode to the three concrete modes
+    # Expand "all" mode to all five concrete modes
     selected_modes: list[str] = []
     for m in args.mode:
         if m == "all":
-            selected_modes.extend(["raw_tide", "godin_notide", "fes2022_notide"])
+            selected_modes.extend([
+                "raw_tide", "godin_notide", "fes2022_notide",
+                "godin_tide", "fes2022_tide",
+            ])
         else:
             selected_modes.append(m)
     # Deduplicate while preserving order
@@ -986,16 +1065,27 @@ def main() -> None:
     for mode_label in active_modes:
         mode_cfg = VALIDATION_MODES[mode_label]
 
-        stage4_build_comparison(
-            station_list=station_list,
-            n_workers=args.workers,
-            force=args.force_build,
-            dry_run=args.dry_run,
-            t_start=args.t_start,
-            t_end=args.t_end,
-            mode_label=mode_label,
-            mode_cfg=mode_cfg,
-        )
+        if mode_cfg.get("tide_derived", False):
+            # godin_tide / fes2022_tide: comparison CSVs are derived from
+            # existing godin_notide / fes2022_notide CSVs — use stage 4b.
+            stage4b_build_tide_modes(
+                force=args.force_build,
+                dry_run=args.dry_run,
+                mode_label=mode_label,
+                station=args.station,
+                n_workers=args.workers,
+            )
+        else:
+            stage4_build_comparison(
+                station_list=station_list,
+                n_workers=args.workers,
+                force=args.force_build,
+                dry_run=args.dry_run,
+                t_start=args.t_start,
+                t_end=args.t_end,
+                mode_label=mode_label,
+                mode_cfg=mode_cfg,
+            )
 
         stage5_compute_metrics(
             force=args.force_metrics,

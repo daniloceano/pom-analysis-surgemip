@@ -1,7 +1,7 @@
 "use client";
 
 import type { ValidationMode, MetricKey } from "@/types/data";
-import { METRIC_DEFS } from "@/types/data";
+import { METRIC_DEFS, MODE_LABELS } from "@/types/data";
 
 interface Props {
   metric: MetricKey;
@@ -10,52 +10,50 @@ interface Props {
   stationCount: number;
 }
 
-// Scientific context for each observation treatment
-const MODE_CONTEXT: Record<ValidationMode, {
-  label: string;
-  comparison: string;
-  note: string;
-  noteClass: string;
-}> = {
-  raw_tide: {
-    label: "Raw (no treatment)",
-    comparison: "obs (with tide)  vs  POM tide",
-    note: "Descriptive only — observations include the astronomical tidal signal. Not suitable for surge validation.",
-    noteClass: "bg-amber-50 border-amber-200 text-amber-800",
+// Scientific note for each validation mode
+const MODE_NOTES: Record<ValidationMode, { comparison: string; note: string; noteClass: string }> = {
+  godin_tide: {
+    comparison: "obs (Godin)  vs  POM_tide (Godin)",
+    note: "Both obs and POM_tide are low-pass filtered with the Godin (1972) filter (24 h + 24 h + 25 h). POM_tide_godin ≈ POM_notide since the tidal component is removed.",
+    noteClass: "bg-indigo-50 border-indigo-200 text-indigo-800",
+  },
+  fes2022_tide: {
+    comparison: "obs (FES2022)  vs  POM_tide (FES2022)",
+    note: "FES2022 harmonic tide subtracted from both obs and POM_tide. Since POM was forced by FES2022, POM_tide − FES2022 ≈ POM_notide.",
+    noteClass: "bg-violet-50 border-violet-200 text-violet-800",
   },
   godin_notide: {
-    label: "Godin filter (1972)",
-    comparison: "obs (Godin-detided)  vs  POM no-tide",
-    note: "Surge validation — 24 h + 24 h + 25 h low-pass filter removes tidal periods. Only valid for hourly or coarser data.",
+    comparison: "obs (Godin)  vs  POM_notide",
+    note: "Godin low-pass filter applied to obs only. POM_notide is the meteorological-only run (no tidal forcing) — no treatment needed.",
     noteClass: "bg-emerald-50 border-emerald-200 text-emerald-800",
   },
   fes2022_notide: {
-    label: "FES2022 subtraction",
-    comparison: "obs (FES2022-detided)  vs  POM no-tide",
-    note: "Surge validation — FES2022 harmonic tide prediction subtracted from observations. Removes astronomical tidal signal.",
-    noteClass: "bg-emerald-50 border-emerald-200 text-emerald-800",
+    comparison: "obs (FES2022)  vs  POM_notide",
+    note: "FES2022 tidal prediction subtracted from obs only. POM_notide is the meteorological-only run — no treatment needed.",
+    noteClass: "bg-teal-50 border-teal-200 text-teal-800",
   },
 };
 
 export default function ControlPanel({ metric, mode, onMetricChange, stationCount }: Props) {
-  // Filter metrics to those scientifically valid for the current obs treatment
-  const availableMetrics = (Object.entries(METRIC_DEFS) as [MetricKey, (typeof METRIC_DEFS)[MetricKey]][])
-    .filter(([, def]) => def.modesAvailable.includes(mode));
+  const availableMetrics = (
+    Object.entries(METRIC_DEFS) as [MetricKey, (typeof METRIC_DEFS)[MetricKey]][]
+  ).filter(([, def]) => def.modesAvailable.includes(mode));
 
-  const ctx = MODE_CONTEXT[mode];
+  const modeInfo = MODE_LABELS[mode];
+  const ctx = MODE_NOTES[mode];
 
   return (
     <div className="p-4 flex flex-col gap-4">
-      {/* Observation treatment */}
+      {/* Validation mode summary */}
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-          Observation treatment
+          Validation mode
         </p>
-        <p className="text-sm font-medium text-slate-800">{ctx.label}</p>
+        <p className="text-sm font-medium text-slate-800">{modeInfo.short}</p>
         <p className="text-xs text-slate-500 mt-0.5 font-mono">{ctx.comparison}</p>
       </div>
 
-      {/* Scientific context note */}
+      {/* Scientific note */}
       <div className={`rounded border px-3 py-2 text-xs leading-relaxed ${ctx.noteClass}`}>
         {ctx.note}
       </div>
@@ -78,9 +76,7 @@ export default function ControlPanel({ metric, mode, onMetricChange, stationCoun
         </select>
       </div>
 
-      <div className="text-xs text-slate-400">
-        {stationCount} stations loaded
-      </div>
+      <div className="text-xs text-slate-400">{stationCount} stations loaded</div>
 
       {/* Usage hints */}
       <div className="mt-1 border-t border-slate-100 pt-3">
@@ -89,10 +85,10 @@ export default function ControlPanel({ metric, mode, onMetricChange, stationCoun
         </p>
         <ul className="text-xs text-slate-500 space-y-1 leading-relaxed">
           <li>• Click a station on the map to inspect it</li>
-          <li>• Switch obs. treatment with the header buttons</li>
+          <li>• Switch validation mode with header buttons</li>
           <li>• Change the map colouring above</li>
-          <li>• Time series appears below the map</li>
-          <li>• Hover button labels for full descriptions</li>
+          <li>• Time series (raw obs + POM tide) below the map</li>
+          <li>• Surge metrics in the station card →</li>
         </ul>
       </div>
     </div>

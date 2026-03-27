@@ -183,13 +183,26 @@ station location:
 Prediction uses all major tidal constituents available in FES2022.
 Valid for any temporal resolution; station coverage limited to FES2022 model domain.
 
-### Comparison pairs (Stage 4)
+### Comparison pairs (Stages 4 / 4b)
 
-| Mode | Obs | Model | Context |
-|------|-----|-------|---------|
-| `raw_tide` | η_raw (with tide) | η_notide AND η_tide | Descriptive |
-| `godin_notide` | η_godin (tide removed) | η_notide | Surge validation |
-| `fes2022_notide` | η_raw − η_FES2022 (tide removed) | η_notide | Surge validation |
+| Mode | Obs treatment | Model target | Stage | Context |
+|------|--------------|--------------|-------|---------|
+| `raw_tide` | none (η_raw with tide) | η_tide and η_notide | 4 | Descriptive |
+| `godin_notide` | Godin filter → η_godin | η_notide | 4 | Surge validation |
+| `fes2022_notide` | FES2022 subtraction → η_obs−FES | η_notide | 4 | Surge validation |
+| `godin_tide` | Godin filter → η_godin | Godin(η_tide) | 4b | Cross-check |
+| `fes2022_tide` | FES2022 subtraction → η_obs−FES | η_tide − FES2022 | 4b | Cross-check |
+
+For `godin_tide` and `fes2022_tide` (Stage 4b), comparison CSVs are derived
+from existing `godin_notide` / `fes2022_notide` CSVs by post-processing
+`model_eta_tide_m`:
+  - `godin_tide`:   apply Godin filter to model_eta_tide_m
+  - `fes2022_tide`: subtract FES2022 tidal prediction from model_eta_tide_m
+
+Both post-processed targets are stored under the `model_eta_notide_m` column
+to reuse existing metric-computation code.  Since POM was forced with FES2022,
+Godin(η_tide) ≈ η_notide and η_tide − FES2022 ≈ η_notide, making these modes
+cross-checks of internal consistency.
 
 Comparison CSVs are joined on exact `datetime_utc` (hourly precision, no fuzzy
 tolerance). Model data is extracted only for 2013–2018; earlier GESLA records
@@ -202,12 +215,16 @@ results/validation/
 ├── README.md
 ├── raw_tide/station_metrics.csv       ← descriptive metrics (515 stations)
 ├── godin_notide/station_metrics.csv   ← surge validation, Godin (467 stations)
-└── fes2022_notide/station_metrics.csv ← surge validation, FES2022 (233 stations)
+├── fes2022_notide/station_metrics.csv ← surge validation, FES2022 (233 stations)
+├── godin_tide/station_metrics.csv     ← cross-check, Godin on POM_tide (467 stations)
+└── fes2022_tide/station_metrics.csv   ← cross-check, FES2022 on POM_tide (233 stations)
 
 figures/validation/
 ├── raw_tide/       ← station maps coloured by tidal metrics
 ├── godin_notide/   ← station maps coloured by surge skill (Godin)
-└── fes2022_notide/ ← station maps coloured by surge skill (FES2022)
+├── fes2022_notide/ ← station maps coloured by surge skill (FES2022)
+├── godin_tide/     ← station maps, Godin-detided POM_tide cross-check
+└── fes2022_tide/   ← station maps, FES2022-detided POM_tide cross-check
 ```
 
 ---
@@ -243,29 +260,46 @@ figures/validation/
 
 ## Results and Interpretation
 
-### 2026-03-25 — Initial validation complete, 3 modes
+### 2026-03-27 — Full 5-mode validation complete
 
 **Station counts after full pipeline run:**
 
-| Mode | Stations with metrics |
-|------|-----------------------|
-| raw_tide | 515 |
-| godin_notide | 467 |
-| fes2022_notide | 233 |
+| Mode | Stations | Median RMSE (m) | Median bias (m) | Median Pearson r |
+|------|----------|-----------------|-----------------|------------------|
+| raw_tide | 515 | — (tide-dominated) | — | — |
+| godin_notide | 467 | 1.53 | −1.53 | 0.297 |
+| fes2022_notide | 233 | 2.36 | −2.36 | 0.205 |
+| godin_tide | 467 | 1.53 | −1.52 | 0.319 |
+| fes2022_tide | 233 | 2.36 | −2.35 | −0.040 |
 
-**[PRELIMINARY] Key patterns (from site exploration):**
+Note: All RMSE and bias values are dominated by the chart datum offset (~1.5–3 m
+above mean sea level) inherent in the GESLA-4 observation reference.  This is
+expected: tidal filters remove the oscillating tidal signal but preserve the mean
+level. Metrics should be interpreted as relative comparisons between modes, not as
+absolute surge skill scores.
 
-- Stations with strong tidal forcing (e.g., Abashiri, Japan) show extremely high
-  `rmse_notide` in raw_tide mode (e.g., 1.521 m) — confirming this metric is dominated
-  by the tidal signal and is not informative for surge validation.
+**[PRELIMINARY] Key patterns:**
 
-- In godin_notide mode, `pearson_r_notide` is substantially higher than in raw_tide
-  mode for tidally dominated stations, confirming that Godin filtering exposes
-  the surge–model correlation that was masked by the tidal signal.
+- Godin filter (`godin_notide`) yields higher Pearson r (0.297) than FES2022
+  (`fes2022_notide`, 0.205), suggesting that for the regional FES2022 domain the
+  Godin method captures surge variability more cleanly.
+
+- `godin_tide` and `godin_notide` have nearly identical RMSE/bias/r, confirming
+  that Godin(η_tide) ≈ η_notide as expected theoretically.
+
+- `fes2022_tide` has strongly negative Pearson r (−0.040) compared to
+  `fes2022_notide` (0.205). **[UNCERTAIN]** This suggests that the subtraction of
+  FES2022 from η_tide introduces noise not present in η_notide. Possible causes:
+  phase errors in FES2022 forcing vs. prediction, or aliasing of residual tidal
+  energy in the FES2022 subtraction from POM_tide.
 
 - FES2022 mode covers only 233/515 stations due to the regional extent of the
-  clipped FES2022 NetCDF files. Expanding coverage would require downloading
-  global FES2022 tidal constants.
+  clipped FES2022 NetCDF files. Expanding coverage requires downloading global
+  FES2022 tidal constants.
+
+**Website:** All 4 validation modes (excluding raw_tide) are now available in the
+interactive site with per-station time series (raw obs + POM_tide), station-card
+metrics, and colour-coded global station maps.
 
 **[UNCERTAIN]** Spatial patterns of skill scores (regional RMSE gradients, bias
 sign patterns) have not yet been systematically interpreted. This requires visual
@@ -303,6 +337,8 @@ inspection of the station-map figures.
 ## Next Steps
 
 - [ ] Expand FES2022 coverage to global domain (download full FES2022b constants)
+- [ ] Investigate the negative Pearson r in fes2022_tide mode (phase error analysis)
+- [ ] Subtract chart datum offset from all obs before computing metrics (mean-corrected validation)
 - [ ] Analyse spatial patterns of godin_notide RMSE and bias (regional clusters)
 - [ ] Seasonal stratification of skill scores (DJF/MAM/JJA/SON)
 - [ ] Case-study validation for specific extreme surge events (e.g., 2016–2018 cyclones)

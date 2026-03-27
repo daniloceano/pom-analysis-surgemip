@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import type { Station, StationData, ValidationMode, MetricKey } from "@/types/data";
-import { METRIC_DEFS, DEFAULT_METRIC } from "@/types/data";
+import { METRIC_DEFS, MODE_LABELS, DEFAULT_METRIC } from "@/types/data";
 import StationCard from "@/components/StationCard";
 import ControlPanel from "@/components/ControlPanel";
 
@@ -28,27 +28,29 @@ const TimeSeriesChart = dynamic(() => import("@/components/TimeSeriesChart"), {
 
 const DEFAULT_MODE: ValidationMode = "godin_notide";
 
-// Labels for the observation treatment selector
-const OBS_TREATMENT_LABELS: Record<ValidationMode, { short: string; full: string }> = {
-  raw_tide:       { short: "Raw",     full: "No treatment — obs includes tidal signal" },
-  godin_notide:   { short: "Godin",   full: "Godin filter (1972) — tidal signal removed" },
-  fes2022_notide: { short: "FES2022", full: "FES2022 harmonics subtracted — tidal signal removed" },
-};
+// Ordered list for the mode selector buttons
+const MODE_ORDER: ValidationMode[] = [
+  "godin_tide",
+  "fes2022_tide",
+  "godin_notide",
+  "fes2022_notide",
+];
 
-// Visual tags distinguishing descriptive from validation contexts
-const MODE_TAG: Record<ValidationMode, { text: string; className: string }> = {
-  raw_tide:       { text: "Descriptive",     className: "bg-amber-100 text-amber-800" },
-  godin_notide:   { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
-  fes2022_notide: { text: "Surge validation", className: "bg-emerald-100 text-emerald-800" },
+// Group labels
+const MODE_GROUP: Record<ValidationMode, string> = {
+  godin_tide:    "vs POM_tide",
+  fes2022_tide:  "vs POM_tide",
+  godin_notide:  "vs POM_notide",
+  fes2022_notide:"vs POM_notide",
 };
 
 export default function Home() {
   const [stationData, setStationData] = useState<StationData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
 
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
-  const [mode, setMode] = useState<ValidationMode>(DEFAULT_MODE);
+  const [mode, setMode]     = useState<ValidationMode>(DEFAULT_MODE);
   const [metric, setMetric] = useState<MetricKey>(DEFAULT_METRIC[DEFAULT_MODE]);
 
   // Load station metrics manifest on mount
@@ -68,7 +70,7 @@ export default function Home() {
       });
   }, []);
 
-  // When obs treatment changes, reset to the appropriate default metric for that mode
+  // When mode changes, reset metric if current metric is not available in new mode
   const handleModeChange = useCallback((newMode: ValidationMode) => {
     setMode(newMode);
     const def = METRIC_DEFS[metric];
@@ -81,9 +83,8 @@ export default function Home() {
     setSelectedStation(station);
   }, []);
 
-  const modesAvailable = stationData?.modes_available ?? ["raw_tide"];
-
-  const tag = MODE_TAG[mode];
+  const modesAvailable = stationData?.modes_available ?? [];
+  const modeInfo = MODE_LABELS[mode];
 
   return (
     <div className="flex flex-col h-full">
@@ -99,27 +100,32 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Context tag */}
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tag.className}`}>
-            {tag.text}
+          {/* Active mode badge */}
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${modeInfo.badgeClass}`}>
+            {modeInfo.badge}
           </span>
 
-          {/* Observation treatment selector */}
+          {/* Validation mode selector */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 whitespace-nowrap">Obs. treatment:</span>
+            <span className="text-xs text-slate-400 whitespace-nowrap">Mode:</span>
             <div className="flex gap-1">
-              {(["raw_tide", "godin_notide", "fes2022_notide"] as ValidationMode[]).map((m) => {
+              {MODE_ORDER.map((m) => {
                 const available = modesAvailable.includes(m);
-                const lbl = OBS_TREATMENT_LABELS[m];
+                const lbl = MODE_LABELS[m];
+                const isActive = mode === m;
+                // Color by group
+                const activeClass = m.includes("notide")
+                  ? "bg-emerald-600 text-white"
+                  : "bg-indigo-600 text-white";
                 return (
                   <button
                     key={m}
                     disabled={!available}
                     onClick={() => handleModeChange(m)}
                     title={lbl.full}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors
-                      ${mode === m
-                        ? "bg-indigo-500 text-white"
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors
+                      ${isActive
+                        ? activeClass
                         : available
                           ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
                           : "bg-slate-800 text-slate-600 cursor-not-allowed"
@@ -146,8 +152,15 @@ export default function Home() {
             <p className="font-semibold">Could not load station data</p>
             <p className="mt-1 text-slate-600 text-xs">{error}</p>
             <p className="mt-2 text-xs text-slate-500">
-              Run <code className="bg-slate-100 px-1 rounded">python scripts/pipeline/prepare_site_data.py</code> to
-              generate <code className="bg-slate-100 px-1 rounded">site/public/data/station_metrics.json</code>.
+              Run{" "}
+              <code className="bg-slate-100 px-1 rounded">
+                python scripts/pipeline/prepare_site_data.py
+              </code>{" "}
+              to generate{" "}
+              <code className="bg-slate-100 px-1 rounded">
+                site/public/data/station_metrics.json
+              </code>
+              .
             </p>
           </div>
         </div>
@@ -166,10 +179,8 @@ export default function Home() {
               />
             </div>
             <div className="h-56 border-t border-slate-200 bg-white shrink-0">
-              <TimeSeriesChart
-                station={selectedStation}
-                mode={mode}
-              />
+              {/* TimeSeriesChart no longer needs mode — always shows raw obs + POM_tide */}
+              <TimeSeriesChart station={selectedStation} />
             </div>
           </div>
 

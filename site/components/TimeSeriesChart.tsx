@@ -5,48 +5,25 @@
  * Plotly.js time series for the selected GESLA station.
  * Loaded via dynamic({ ssr: false }) in page.tsx.
  *
- * Visualisation logic per observation treatment:
+ * Always shows the SAME three traces regardless of the validation mode:
  *
- *   raw_tide        → obs (with tide) + POM tide + POM no-tide (reference)
- *                     Descriptive — both signals include astronomical tide.
+ *   obs   — raw GESLA observation (with tidal signal)
+ *   tide  — POM_tide (surge + tidal signal)
+ *   notide— POM_notide (storm surge only, reference)
  *
- *   godin_notide    → obs (Godin-detided) + POM no-tide
- *                     Surge validation — tide removed from obs.
- *
- *   fes2022_notide  → obs (FES2022-detided) + POM no-tide
- *                     Surge validation — tide removed from obs.
+ * The validation mode selector only affects the metric maps and station
+ * card metrics.  The primary time-series view is always obs vs POM_tide
+ * so that both signals are on comparable scales (both include the tide).
  */
 
 import { useEffect, useState } from "react";
-import type { Station, ValidationMode, TimeSeriesData } from "@/types/data";
+import type { Station, TimeSeriesData } from "@/types/data";
 
 interface Props {
   station: Station | null;
-  mode: ValidationMode;
 }
 
-// Trace labels per observation treatment
-const TRACE_OBS: Record<ValidationMode, string> = {
-  raw_tide:       "GESLA obs (raw, with tide)",
-  godin_notide:   "GESLA obs (Godin-detided)",
-  fes2022_notide: "GESLA obs (FES2022-detided)",
-};
-
-const TRACE_NOTIDE: Record<ValidationMode, string> = {
-  raw_tide:       "POM no-tide (surge, reference)",
-  godin_notide:   "POM no-tide (surge)",
-  fes2022_notide: "POM no-tide (surge)",
-};
-
-const TRACE_TIDE = "POM tide (surge + tide)";
-
-const MODE_SUBTITLE: Record<ValidationMode, string> = {
-  raw_tide:       "descriptive",
-  godin_notide:   "surge validation · Godin-detided",
-  fes2022_notide: "surge validation · FES2022-detided",
-};
-
-export default function TimeSeriesChart({ station, mode }: Props) {
+export default function TimeSeriesChart({ station }: Props) {
   const [tsData, setTsData] = useState<TimeSeriesData | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -58,9 +35,9 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     }
     setLoading(true);
     setErr(null);
-    fetch(`/data/ts/${mode}/${station.id}.json`)
+    fetch(`/data/ts/${station.id}.json`)
       .then((r) => {
-        if (!r.ok) throw new Error(`No time series for ${station.id} / ${mode}`);
+        if (!r.ok) throw new Error(`No time series for ${station.id}`);
         return r.json();
       })
       .then((d: TimeSeriesData) => {
@@ -71,7 +48,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
         setErr(String(e));
         setLoading(false);
       });
-  }, [station, mode]);
+  }, [station]);
 
   if (!station) {
     return (
@@ -93,7 +70,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     return (
       <div className="flex items-center justify-center h-full px-4">
         <p className="text-xs text-slate-400 italic text-center">
-          {err ?? "No time series available for this station / treatment."}
+          {err ?? "No time series available for this station."}
         </p>
       </div>
     );
@@ -104,7 +81,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     {
       x: tsData.dates,
       y: tsData.obs,
-      name: TRACE_OBS[mode],
+      name: "GESLA obs (raw)",
       type: "scatter",
       mode: "lines",
       line: { color: "#374151", width: 1.5 },
@@ -112,29 +89,11 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     },
   ];
 
-  if (tsData.notide) {
-    traces.push({
-      x: tsData.dates,
-      y: tsData.notide,
-      name: TRACE_NOTIDE[mode],
-      type: "scatter",
-      mode: "lines",
-      // In raw mode, no-tide is shown as a light reference trace (not a direct comparison)
-      line: {
-        color: mode === "raw_tide" ? "#94a3b8" : "#6366f1",
-        width: mode === "raw_tide" ? 1.0 : 1.5,
-        dash: "dot",
-      },
-      connectgaps: false,
-    });
-  }
-
-  // POM tide trace: only available in raw mode JSON
   if (tsData.tide) {
     traces.push({
       x: tsData.dates,
       y: tsData.tide,
-      name: TRACE_TIDE,
+      name: "POM tide",
       type: "scatter",
       mode: "lines",
       line: { color: "#0891b2", width: 1.5, dash: "dash" },
@@ -142,7 +101,19 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     });
   }
 
-  const title = `${station.name} · daily mean 2013–2018 (${MODE_SUBTITLE[mode]})`;
+  if (tsData.notide) {
+    traces.push({
+      x: tsData.dates,
+      y: tsData.notide,
+      name: "POM no-tide (surge ref.)",
+      type: "scatter",
+      mode: "lines",
+      line: { color: "#94a3b8", width: 1.0, dash: "dot" },
+      connectgaps: false,
+    });
+  }
+
+  const title = `${station.name} · daily mean 2013–2018`;
 
   const layout = {
     title: { text: title, font: { size: 11, color: "#374151" }, x: 0.01, xanchor: "left" },
@@ -175,7 +146,7 @@ export default function TimeSeriesChart({ station, mode }: Props) {
     displaylogo: false,
     toImageButtonOptions: {
       format: "png",
-      filename: `${station.id}_${mode}`,
+      filename: `${station.id}_timeseries`,
     },
   };
 

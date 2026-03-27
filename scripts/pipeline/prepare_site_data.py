@@ -4,14 +4,17 @@ prepare_site_data.py
 Prepare data files for the interactive validation website.
 
 Reads outputs produced by the validation pipeline and generates
-lightweight JSON/GeoJSON files for static serving via Next.js / Vercel.
+lightweight JSON files for static serving via Next.js / Vercel.
 
 Outputs (written to site/public/data/)
 ---------------------------------------
   station_metrics.json   – unified per-station metrics for all modes
                            (used to populate the map and summary cards)
-  ts/<mode>/<stn>.json   – per-station daily-mean time series (raw_tide, godin_notide, fes2022_notide)
-                           (lazy-loaded when user clicks a station)
+  ts/<stn>.json          – per-station daily-mean time series
+                           Always contains raw obs + POM_tide + POM_notide.
+                           Independent of validation mode: the chart shows
+                           the same signals regardless of which mode is
+                           selected in the UI.
 
 Station metrics JSON structure
 ------------------------------
@@ -22,41 +25,37 @@ Station metrics JSON structure
         "name": "Santos",
         "site_code": "540A",
         "country": "BRA",
-        "lon": -46.30,
-        "lat": -23.97,
-        "model_lon": ...,
-        "model_lat": ...,
-        "distance_km": ...,
+        "lon": -46.30, "lat": -23.97,
+        "model_lon": ..., "model_lat": ..., "distance_km": ...,
         "metrics": {
-          "raw_tide": {
-            "n_valid": 1234,
-            "rmse_notide": 0.05,
-            "bias_notide": 0.01,
-            "pearson_r_notide": 0.95,
-            "rmse_tide": 0.20,
-            "bias_tide": -0.01,
-            "pearson_r_tide": 0.98,
-            "obs_mean_m": 0.12,
-            "obs_max_m": 0.80
-          },
-          "godin_notide": { ... },
-          "fes2022_notide": { ... }
+          "godin_tide":    { "n_valid": ..., "rmse_notide": ..., ... },
+          "fes2022_tide":  { ... },
+          "godin_notide":  { ... },
+          "fes2022_notide":{ ... }
         }
       },
       ...
-    ]
+    ],
+    "modes_available": ["godin_tide", "fes2022_tide", "godin_notide", "fes2022_notide"]
   }
 
 Time series JSON structure
 --------------------------
   {
     "station_id": "santos-540a-bra-uhslc",
-    "mode": "raw_tide",
-    "dates": ["2013-01-01", ...],
-    "obs": [0.12, ...],
-    "notide": [0.05, ...],
-    "tide": [0.15, ...]       <- only in raw_tide mode
+    "dates":  ["2013-01-01", ...],
+    "obs":    [0.12, ...],       <- raw GESLA obs (with tidal signal, m)
+    "tide":   [0.15, ...],       <- POM_tide daily mean (m)
+    "notide": [0.05, ...]        <- POM_notide daily mean (surge reference, m)
   }
+
+Why raw obs + POM_tide?
+-----------------------
+The primary time-series visualisation always shows the raw (un-detided)
+observation alongside POM_tide.  Both signals include the astronomical tidal
+component, making them visually comparable on the same y-axis.
+Validation metrics (RMSE, bias, Pearson r) from the detided modes are shown
+separately in the station card.
 
 Usage
 -----
@@ -83,9 +82,17 @@ from config.settings import (
     STATION_METRICS_GODIN_CSV,
     STATION_METRICS_FES_CSV,
     GESLA_VS_MODEL_DIR,
-    VALID_GODIN_DIR,
-    VALID_FES_DIR,
 )
+
+# Import new mode paths (may not exist in older settings.py versions)
+try:
+    from config.settings import (
+        STATION_METRICS_GODIN_TIDE_CSV,
+        STATION_METRICS_FES_TIDE_CSV,
+    )
+except ImportError:
+    STATION_METRICS_GODIN_TIDE_CSV = None  # type: ignore[assignment]
+    STATION_METRICS_FES_TIDE_CSV   = None  # type: ignore[assignment]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,7 +108,7 @@ SITE_DATA_DIR = _ROOT / "site" / "public" / "data"
 MODEL_T_START = "2013-01-01"
 MODEL_T_END   = "2019-01-01"
 
-# Metric columns to include in station_metrics.json per mode
+# Metric columns to expose per mode
 _METRIC_COLS_RAW = [
     "n_valid",
     "obs_mean_m", "obs_std_m", "obs_max_m",
@@ -117,9 +124,10 @@ _METRIC_COLS_DETIDED = [
     "rmse_notide", "bias_notide", "pearson_r_notide",
 ]
 
-# ------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # Argument parsing
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__,
@@ -135,12 +143,11 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Helpers
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def _safe_float(val) -> float | None:
-    """Convert numpy/pandas float to Python float; return None for NaN."""
     if val is None:
         return None
     try:
@@ -150,8 +157,8 @@ def _safe_float(val) -> float | None:
         return None
 
 
-def _load_metrics_df(csv_path: pathlib.Path) -> pd.DataFrame | None:
-    if not csv_path.exists():
+def _load_metrics_df(csv_path: pathlib.Path | None) -> pd.DataFrame | None:
+    if csv_path is None or not csv_path.exists():
         return None
     df = pd.read_csv(csv_path)
     return df.set_index("station_file_name")
@@ -161,23 +168,45 @@ def _metrics_row_to_dict(row: pd.Series, cols: list[str]) -> dict:
     return {c: _safe_float(row.get(c)) for c in cols}
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Station metrics JSON
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def build_station_metrics_json(
-    raw_df: pd.DataFrame | None,
-    godin_df: pd.DataFrame | None,
-    fes_df: pd.DataFrame | None,
+    dfs: dict[str, pd.DataFrame | None],
     station_filter: str | None,
-) -> list[dict]:
-    """Build unified station list with metrics for all available modes."""
+) -> tuple[list[dict], list[str]]:
+    """
+    Build unified station list with metrics for all available modes.
 
-    # Use the raw metrics as the primary source for station coordinates
-    primary_df = raw_df if raw_df is not None else godin_df if godin_df is not None else fes_df
+    Parameters
+    ----------
+    dfs : dict[mode_name -> DataFrame | None]
+        Mapping of validation mode name to metrics DataFrame (indexed by
+        station_file_name).
+    station_filter : str | None
+        If set, only process this one station.
+
+    Returns
+    -------
+    list[dict], list[str]
+        Stations list and list of mode names that have data.
+    """
+    # Ordered preference for source of station coordinates
+    mode_order = ["raw_tide", "godin_notide", "fes2022_notide",
+                  "godin_tide", "fes2022_tide"]
+    primary_df: pd.DataFrame | None = None
+    for m in mode_order:
+        if dfs.get(m) is not None:
+            primary_df = dfs[m]
+            break
+
     if primary_df is None:
         logger.error("No metrics CSVs found — nothing to build.")
-        return []
+        return [], []
+
+    modes_available = [m for m in mode_order if dfs.get(m) is not None
+                       and m != "raw_tide"]  # exclude raw descriptive from modes_available
 
     stations = []
     ids = [station_filter] if station_filter else list(primary_df.index)
@@ -187,7 +216,7 @@ def build_station_metrics_json(
             continue
         row = primary_df.loc[stn_id]
 
-        stn = {
+        stn: dict = {
             "id":          str(stn_id),
             "name":        str(row.get("station_name", stn_id)),
             "site_code":   str(row.get("site_code", "")),
@@ -200,36 +229,51 @@ def build_station_metrics_json(
             "metrics": {},
         }
 
-        if raw_df is not None and stn_id in raw_df.index:
-            stn["metrics"]["raw_tide"] = _metrics_row_to_dict(raw_df.loc[stn_id], _METRIC_COLS_RAW)
+        # Validation modes (detided)
+        for mode_name, metric_cols in [
+            ("godin_tide",    _METRIC_COLS_DETIDED),
+            ("fes2022_tide",  _METRIC_COLS_DETIDED),
+            ("godin_notide",  _METRIC_COLS_DETIDED),
+            ("fes2022_notide",_METRIC_COLS_DETIDED),
+        ]:
+            df = dfs.get(mode_name)
+            if df is not None and stn_id in df.index:
+                stn["metrics"][mode_name] = _metrics_row_to_dict(
+                    df.loc[stn_id], metric_cols)
 
-        if godin_df is not None and stn_id in godin_df.index:
-            stn["metrics"]["godin_notide"] = _metrics_row_to_dict(godin_df.loc[stn_id], _METRIC_COLS_DETIDED)
+        # raw_tide (descriptive) — kept for backwards compatibility but
+        # not listed in modes_available (not a surge validation mode)
+        if dfs.get("raw_tide") is not None and stn_id in dfs["raw_tide"].index:
+            stn["metrics"]["raw_tide"] = _metrics_row_to_dict(
+                dfs["raw_tide"].loc[stn_id], _METRIC_COLS_RAW)
 
-        if fes_df is not None and stn_id in fes_df.index:
-            stn["metrics"]["fes2022_notide"] = _metrics_row_to_dict(fes_df.loc[stn_id], _METRIC_COLS_DETIDED)
-
-        # Only include stations that have at least one mode AND valid coordinates
         if stn["lon"] is not None and stn["lat"] is not None and stn["metrics"]:
             stations.append(stn)
 
-    return stations
+    return stations, modes_available
 
 
-# ------------------------------------------------------------------
-# Time series JSON
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Time series JSON  (always raw obs + POM_tide + POM_notide)
+# ---------------------------------------------------------------------------
 
-def _load_ts_for_mode(
+def _load_ts(
     station_id: str,
-    comp_dir: pathlib.Path,
-    mode: str,
+    raw_comp_dir: pathlib.Path,
 ) -> dict | None:
     """
-    Load comparison CSV for one station, resample to daily means,
-    restrict to model period, and return a dict for JSON serialisation.
+    Load the raw_tide comparison CSV for one station and build the TS dict.
+
+    The time series JSON ALWAYS uses the raw (un-detided) GESLA observation
+    alongside POM_tide and POM_notide.  This makes the chart independent of
+    the validation mode selector: users see the same raw comparison regardless
+    of which detiding method they choose for the metric maps.
+
+    Returns
+    -------
+    dict or None
     """
-    csv_path = comp_dir / f"{station_id}.csv.gz"
+    csv_path = raw_comp_dir / f"{station_id}.csv.gz"
     if not csv_path.exists():
         return None
 
@@ -245,37 +289,31 @@ def _load_ts_for_mode(
     if df.empty:
         return None
 
-    # Keep only numeric sea-level columns
-    keep_cols = ["sea_level_obs_m"]
-    if "model_eta_notide_m" in df.columns:
-        keep_cols.append("model_eta_notide_m")
-    if "model_eta_tide_m" in df.columns and mode == "raw_tide":
-        keep_cols.append("model_eta_tide_m")
+    # Select sea-level columns
+    keep = ["sea_level_obs_m"]
+    if "model_eta_tide_m"   in df.columns: keep.append("model_eta_tide_m")
+    if "model_eta_notide_m" in df.columns: keep.append("model_eta_notide_m")
+    df = df[[c for c in keep if c in df.columns]].copy()
 
-    df = df[keep_cols].copy()
-
-    # Resample to daily means
+    # Daily means
     daily = df.resample("1D").mean()
 
-    # Build output dict
     result: dict = {
         "station_id": station_id,
-        "mode": mode,
         "dates": [d.strftime("%Y-%m-%d") for d in daily.index],
-        "obs": [_safe_float(v) for v in daily["sea_level_obs_m"].values],
+        "obs":   [_safe_float(v) for v in daily["sea_level_obs_m"].values],
     }
+    if "model_eta_tide_m" in daily.columns:
+        result["tide"]   = [_safe_float(v) for v in daily["model_eta_tide_m"].values]
     if "model_eta_notide_m" in daily.columns:
         result["notide"] = [_safe_float(v) for v in daily["model_eta_notide_m"].values]
-    if "model_eta_tide_m" in daily.columns:
-        result["tide"] = [_safe_float(v) for v in daily["model_eta_tide_m"].values]
 
     return result
 
 
 def write_ts_json(
     station_id: str,
-    mode: str,
-    comp_dir: pathlib.Path,
+    raw_comp_dir: pathlib.Path,
     out_dir: pathlib.Path,
     force: bool,
 ) -> str:
@@ -283,7 +321,7 @@ def write_ts_json(
     if out_path.exists() and not force:
         return "skipped"
 
-    ts = _load_ts_for_mode(station_id, comp_dir, mode)
+    ts = _load_ts(station_id, raw_comp_dir)
     if ts is None:
         return "no_data"
 
@@ -293,9 +331,9 @@ def write_ts_json(
     return "written"
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Main
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     args = parse_args()
@@ -303,85 +341,77 @@ def main() -> None:
 
     SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ---- Load metrics -------------------------------------------------------
+    # ---- Load all metrics CSVs -----------------------------------------------
     logger.info("Loading metrics CSVs…")
-    raw_df   = _load_metrics_df(STATION_METRICS_CSV)
-    godin_df = _load_metrics_df(STATION_METRICS_GODIN_CSV)
-    fes_df   = _load_metrics_df(STATION_METRICS_FES_CSV)
+    dfs: dict[str, pd.DataFrame | None] = {
+        "raw_tide":      _load_metrics_df(STATION_METRICS_CSV),
+        "godin_notide":  _load_metrics_df(STATION_METRICS_GODIN_CSV),
+        "fes2022_notide":_load_metrics_df(STATION_METRICS_FES_CSV),
+        "godin_tide":    _load_metrics_df(STATION_METRICS_GODIN_TIDE_CSV),
+        "fes2022_tide":  _load_metrics_df(STATION_METRICS_FES_TIDE_CSV),
+    }
+    for name, df in dfs.items():
+        if df is not None:
+            logger.info("  %-18s: %d stations", name, len(df))
 
-    modes_available = []
-    if raw_df is not None:
-        logger.info("  raw_tide      : %d stations", len(raw_df))
-        modes_available.append("raw_tide")
-    if godin_df is not None:
-        logger.info("  godin_notide  : %d stations", len(godin_df))
-        modes_available.append("godin_notide")
-    if fes_df is not None:
-        logger.info("  fes2022_notide: %d stations", len(fes_df))
-        modes_available.append("fes2022_notide")
-
-    if not modes_available:
+    if all(v is None for v in dfs.values()):
         logger.error("No metrics found. Run compute_station_metrics.py first.")
         sys.exit(1)
 
-    # ---- Build station metrics JSON -----------------------------------------
+    # ---- Build station metrics JSON ------------------------------------------
     metrics_out = SITE_DATA_DIR / "station_metrics.json"
     if metrics_out.exists() and not args.force:
         logger.info("station_metrics.json exists — skipping (use --force).")
     else:
         logger.info("Building station_metrics.json…")
-        stations = build_station_metrics_json(raw_df, godin_df, fes_df, args.station)
+        stations, modes_available = build_station_metrics_json(dfs, args.station)
         with open(metrics_out, "w") as fh:
-            json.dump({"stations": stations, "modes_available": modes_available}, fh,
-                      separators=(",", ":"))
-        logger.info("  Written: %s  (%d stations)", metrics_out, len(stations))
+            json.dump(
+                {"stations": stations, "modes_available": modes_available},
+                fh, separators=(",", ":"),
+            )
+        logger.info("  Written: %s  (%d stations, modes=%s)",
+                    metrics_out, len(stations), modes_available)
 
-    # ---- Time series JSONs ---------------------------------------------------
+    # ---- Time series JSONs  (one per station, always raw obs + POM_tide) -----
     if args.skip_ts:
         logger.info("--skip-ts: skipping time series generation.")
         return
 
-    mode_comps = {
-        "raw_tide":      GESLA_VS_MODEL_DIR,
-        "godin_notide":  VALID_GODIN_DIR,
-        "fes2022_notide": VALID_FES_DIR,
-    }
+    if not GESLA_VS_MODEL_DIR.exists():
+        logger.warning(
+            "raw_tide comparison CSV dir not found: %s\n"
+            "  TS JSONs cannot be generated without raw_tide comparison CSVs.",
+            GESLA_VS_MODEL_DIR,
+        )
+        return
 
-    # Determine station IDs to process
-    primary_df = raw_df if raw_df is not None else godin_df if godin_df is not None else fes_df
+    out_ts_dir = SITE_DATA_DIR / "ts"
+    out_ts_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine station IDs from primary metrics
+    primary_df = next((v for v in dfs.values() if v is not None), None)
     station_ids = [args.station] if args.station else list(primary_df.index)  # type: ignore[union-attr]
 
-    total_written = 0
-    total_skipped = 0
-    total_nodata  = 0
+    logger.info(
+        "Writing time series JSONs → %s  (%d stations)", out_ts_dir, len(station_ids)
+    )
 
-    for mode, comp_dir in mode_comps.items():
-        if not comp_dir.exists():
-            logger.info("  Skipping mode '%s' — comp_dir missing: %s", mode, comp_dir)
-            continue
+    n_written = n_skipped = n_nodata = 0
+    for i, stn_id in enumerate(station_ids, 1):
+        status = write_ts_json(stn_id, GESLA_VS_MODEL_DIR, out_ts_dir, args.force)
+        if status == "written":
+            n_written += 1
+        elif status == "skipped":
+            n_skipped += 1
+        else:
+            n_nodata += 1
+        if i % 100 == 0 or i == len(station_ids):
+            logger.info("  %d/%d  written=%d skipped=%d no_data=%d",
+                        i, len(station_ids), n_written, n_skipped, n_nodata)
 
-        out_dir = SITE_DATA_DIR / "ts" / mode
-        out_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("Writing time series for mode '%s' → %s", mode, out_dir)
-
-        n_written = n_skipped = n_nodata = 0
-        for i, stn_id in enumerate(station_ids, 1):
-            status = write_ts_json(stn_id, mode, comp_dir, out_dir, args.force)
-            if status == "written":
-                n_written += 1
-            elif status == "skipped":
-                n_skipped += 1
-            else:
-                n_nodata += 1
-            if i % 100 == 0 or i == len(station_ids):
-                logger.info("  %s  %d/%d  written=%d skipped=%d no_data=%d",
-                            mode, i, len(station_ids), n_written, n_skipped, n_nodata)
-
-        total_written += n_written
-        total_skipped += n_skipped
-        total_nodata  += n_nodata
-
-    logger.info("Done.  written=%d  skipped=%d  no_data=%d", total_written, total_skipped, total_nodata)
+    logger.info("Done.  written=%d  skipped=%d  no_data=%d",
+                n_written, n_skipped, n_nodata)
 
 
 if __name__ == "__main__":
