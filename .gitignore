@@ -22,6 +22,7 @@ __pycache__/
 # NetCDF files
 *.nc
 *.nc4
+*.nc.xz
 
 # Raw GESLA data (ZIP archive and extracted station files)
 data/gesla/
