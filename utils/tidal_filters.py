@@ -158,7 +158,7 @@ def predict_fes_tide(
                     └── ...
 
         Pass the *parent* of ``fes2022b/`` (i.e.
-        ``data/tide_models_clipped_brasil``).
+        ``data/tide_models``).
     model : str
         Tide model identifier passed to ``eo-tides``.  Default
         ``"FES2022"``.

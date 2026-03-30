@@ -314,8 +314,10 @@ inspection of the station-map figures.
    surge skill is only assessed in FES2022 mode.
 
 2. **FES2022 regional coverage:** Only 233 stations fall within the clipped
-   FES2022 domain (`data/tide_models_clipped_brasil/fes2022b/`). This severely
-   limits the global coverage of the FES2022-detided validation.
+   FES2022 regional data (`data/tide_models_clipped_brasil/fes2022b/`). This
+   limitation has been resolved: global FES2022 constants are now available at
+   `data/tide_models/fes2022b/ocean_tide_20241025/`, enabling FES2022-detided
+   validation for the full global station set.
 
 3. **Short record overlap:** Some GESLA-4 stations have data only for part of
    2013–2018. Skill scores based on < 100 valid samples should be treated with caution.

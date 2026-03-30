@@ -268,7 +268,7 @@ FIG_VALID_GODIN_TIDE_DIR = FIG_VALID_DIR / "godin_tide"
 FIG_VALID_FES_TIDE_DIR   = FIG_VALID_DIR / "fes2022_tide"
 
 # Tide model data
-TIDE_MODELS_DIR = DATA_DIR / "tide_models_clipped_brasil"
+TIDE_MODELS_DIR = DATA_DIR / "tide_models"
 FES_MODEL_NAME  = "FES2022"   # identifier passed to eo-tides / pyTMD
 
 for _d in [

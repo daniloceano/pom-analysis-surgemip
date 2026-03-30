@@ -15,7 +15,7 @@ Two independent methods are supported:
     Predict the astronomical tide at each station location with the FES2022
     harmonic model (via ``eo-tides`` / ``pyTMD``) and subtract it from the
     observation.  Requires the clipped tide-model NetCDF files at
-    ``data/tide_models_clipped_brasil/fes2022b/``.
+    ``data/tide_models/fes2022b/ocean_tide_20241025/``.
 
 Output schema
 -------------
