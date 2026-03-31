@@ -30,11 +30,13 @@ python scripts/pipeline/prepare_site_data.py --force --skip-ts
 
 Output written to `site/public/data/`:
 ```
-station_metrics.json                   ← unified metrics for all modes (map data)
-ts/raw/<station_id>.json               ← raw mode time series
-ts/godin_filter/<station_id>.json      ← Godin-detided time series
-ts/minus_fes_tide/<station_id>.json    ← FES2022-detided time series
+station_metrics.json     ← unified metrics for all validation modes (map data)
+ts/<station_id>.json     ← per-station time series (raw obs + POM_tide + POM_notide)
 ```
+
+The time series JSON always contains the raw observation plus both POM outputs (tide and
+notide), making it independent of the validation mode selector. This allows the chart to
+show the same comparison regardless of which detiding method is active in the UI.
 
 Only modes with an existing `results/validation/*/station_metrics.csv` appear in the site.
 
