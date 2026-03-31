@@ -59,7 +59,7 @@ import argparse
 import logging
 import pathlib
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 
@@ -121,7 +121,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=50,
-        help="Parallel threads for godin.  FES2022 is always sequential. (default: 50)",
+        help="Parallel threads for both godin and FES2022. (default: 50)",
     )
     p.add_argument(
         "--force",
@@ -288,6 +288,30 @@ def detide_fes(
 
 
 # ---------------------------------------------------------------------------
+# Module-level worker for ProcessPoolExecutor (must be picklable)
+# ---------------------------------------------------------------------------
+
+def _fes_worker_wrapper(fn: str) -> str:
+    """Module-level wrapper for pickle serialization with multiprocessing."""
+    return detide_fes(
+        file_name=fn,
+        obs_dir=_FES_WORKER_OBS_DIR,
+        out_dir=_FES_WORKER_OUT_DIR,
+        tide_models_dir=_FES_WORKER_TIDE_DIR,
+        fes_model=_FES_WORKER_MODEL_NAME,
+        force=_FES_WORKER_FORCE,
+    )
+
+
+# Global variables for _fes_worker_wrapper (set before multiprocessing)
+_FES_WORKER_OBS_DIR: pathlib.Path | None = None
+_FES_WORKER_OUT_DIR: pathlib.Path | None = None
+_FES_WORKER_TIDE_DIR: pathlib.Path | None = None
+_FES_WORKER_MODEL_NAME: str | None = None
+_FES_WORKER_FORCE: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -352,7 +376,7 @@ def main() -> None:
 
             _log_counts("godin", counts)
 
-    # ---- FES tide prediction (sequential — NetCDF I/O not guaranteed thread-safe)
+    # ---- FES tide prediction (parallelized via ThreadPoolExecutor)
     if run_fes:
         logger.info("")
         logger.info("── FES2022 detiding (%d stations) → %s", len(all_files), GESLA_OBS_FES_DIR)
@@ -361,20 +385,32 @@ def main() -> None:
             logger.info("[DRY-RUN] Would predict FES tide for %d stations.", len(all_files))
         else:
             counts_fes: dict[str, int] = {}
-            iterable = all_files
-            if _TQDM:
-                iterable = _tqdm(all_files, desc="FES2022", unit="stn", dynamic_ncols=True)
 
-            for fn in iterable:
-                status = detide_fes(
-                    file_name=fn,
-                    obs_dir=obs_dir,
-                    out_dir=GESLA_OBS_FES_DIR,
-                    tide_models_dir=TIDE_MODELS_DIR,
-                    fes_model=FES_MODEL_NAME,
-                    force=args.force,
-                )
-                counts_fes[status] = counts_fes.get(status, 0) + 1
+            # Set global variables for ProcessPoolExecutor workers
+            global _FES_WORKER_OBS_DIR, _FES_WORKER_OUT_DIR, _FES_WORKER_TIDE_DIR, _FES_WORKER_MODEL_NAME, _FES_WORKER_FORCE
+            _FES_WORKER_OBS_DIR = obs_dir
+            _FES_WORKER_OUT_DIR = GESLA_OBS_FES_DIR
+            _FES_WORKER_TIDE_DIR = TIDE_MODELS_DIR
+            _FES_WORKER_MODEL_NAME = FES_MODEL_NAME
+            _FES_WORKER_FORCE = args.force
+
+            futures_map = {}
+            with ProcessPoolExecutor(max_workers=args.workers) as pool:
+                for fn in all_files:
+                    fut = pool.submit(_fes_worker_wrapper, fn)
+                    futures_map[fut] = fn
+
+                iterable = as_completed(futures_map)
+                if _TQDM:
+                    iterable = _tqdm(iterable, total=len(all_files),
+                                     desc="FES2022", unit="stn", dynamic_ncols=True)
+                for fut in iterable:
+                    try:
+                        status = fut.result()
+                    except Exception as exc:
+                        logger.error("Unhandled exception: %s", exc)
+                        status = "error"
+                    counts_fes[status] = counts_fes.get(status, 0) + 1
 
             _log_counts("fes2022", counts_fes)
 
