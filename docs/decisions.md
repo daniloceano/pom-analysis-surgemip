@@ -163,3 +163,47 @@ Two model targets are assessed independently:
 
 Metrics: RMSE, mean bias (model − obs), Pearson r, observed/model mean,
 standard deviation, and max absolute value.
+
+---
+
+## 12. Demeaning preprocessing for validation metrics
+
+**Decision:** Subtract the long-term mean from both observations and model
+series before computing RMSE, bias, and Pearson r.
+
+**Rationale:**
+Tide gauges use chart datum as their reference level (typically 1.5–3 m above
+mean sea level), while ocean models use approximately mean sea level (~0 m).
+Without demeaning, RMSE and bias would be dominated by this constant offset,
+which has no physical meaning for storm-surge validation.
+
+By subtracting the long-term mean from each series independently:
+  1. The reference level difference is removed
+  2. Metrics focus on the agreement of **variability** (storm-surge signal)
+  3. RMSE becomes interpretable as the typical error in surge amplitude
+  4. Bias measures systematic over/underestimation of surge variability
+
+The raw means are still reported in `obs_mean_m` and `model_*_mean_m` columns
+for reference and provenance.
+
+**Implementation:** `compute_station_metrics.py` applies demeaning by default.
+Use `--no-demean` flag to disable (not recommended for surge validation).
+
+---
+
+## 13. Time series preprocessing for the website monitor
+
+**Decision:** Apply Godin filter and demeaning to time series displayed in the
+interactive website.
+
+**Processing applied:**
+  * GESLA observations: Godin filter (removes astronomical tide) + demean
+  * POM_tide: Godin filter + demean
+  * POM_notide: demean only (already meteorological, no tide to remove)
+
+**Rationale:**
+The website monitor is intended to visualise storm-surge variability, not raw
+tidal signals.  Applying the same preprocessing used in the validation metrics
+ensures visual consistency: what users see in the chart matches what the metrics
+measure.  All three series are shown as anomalies relative to their respective
+mean levels, making them directly comparable.

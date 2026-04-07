@@ -8,10 +8,29 @@ For each station, the script:
   1. Reads ``<file_name>.csv.gz`` from the comparison directory.
   2. Filters to rows where ``gesla_qc_flag == 1`` and ``gesla_use_flag == 1``
      and both ``sea_level_obs_m`` and the model columns are non-NaN.
-  3. Computes metrics on two model targets:
+  3. **Removes the long-term mean** from both obs and model series (demeaning).
+  4. Computes metrics on the demeaned series for model targets:
        - ``model_eta_notide_m``  (meteorological sea level / storm surge)
        - ``model_eta_tide_m``    (full sea level including tides)
-  4. Appends a summary row to the output table.
+
+Demeaning preprocessing
+-----------------------
+By default, the long-term mean is subtracted from both observations and model
+series BEFORE computing RMSE, bias, and Pearson r. This is critical because:
+
+- Tide gauges use chart datum (typically 1.5–3 m above mean sea level)
+- Models use approximately mean sea level as reference (~0 m)
+- Without demeaning, RMSE/bias are dominated by this constant datum offset
+
+**After demeaning:**
+- RMSE measures error in VARIABILITY (storm-surge amplitude)
+- Bias measures systematic over/under-estimation of surge amplitude
+- Pearson r measures phase/timing agreement of surge events
+
+The raw means are still reported in `obs_mean_m` and `model_*_mean_m` columns
+for reference and provenance.
+
+To disable demeaning (e.g., for legacy comparison), use ``--no-demean``.
 
 Output columns
 --------------
@@ -31,7 +50,7 @@ Outputs
 
 Usage
 -----
-    # Compute metrics for all stations:
+    # Compute metrics for all stations (with demeaning, default):
     python scripts/validation/compute_station_metrics.py
 
     # Overwrite existing output:
@@ -40,6 +59,9 @@ Usage
     # Single station (for testing):
     python scripts/validation/compute_station_metrics.py \\
         --station san_francisco_ca-551a-usa-uhslc
+    
+    # Disable demeaning (NOT recommended for surge validation):
+    python scripts/validation/compute_station_metrics.py --no-demean
 """
 
 from __future__ import annotations
@@ -114,6 +136,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--no-demean",
+        action="store_true",
+        help=(
+            "Disable demeaning preprocessing. By default, the long-term mean "
+            "is subtracted from both obs and model before computing metrics. "
+            "NOT recommended for surge validation — use only for legacy comparison."
+        ),
+    )
+    p.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output file.",
@@ -129,6 +160,20 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Metric helpers
 # ---------------------------------------------------------------------------
+
+def _demean(arr: np.ndarray) -> np.ndarray:
+    """
+    Remove the long-term mean from an array.
+    
+    This preprocessing step removes the chart datum / reference level offset,
+    focusing the metrics on variability rather than absolute levels. This is
+    essential because tide gauges and models use different reference datums.
+    """
+    mean_val = np.nanmean(arr)
+    if np.isnan(mean_val):
+        return arr
+    return arr - mean_val
+
 
 def _rmse(obs: np.ndarray, model: np.ndarray) -> float:
     diff = obs - model
@@ -149,6 +194,7 @@ def _pearson_r(obs: np.ndarray, model: np.ndarray) -> float:
 def compute_metrics_for_file(
     csv_path: pathlib.Path,
     targets: set[str] | None = None,
+    demean: bool = True,
 ) -> dict | None:
     """
     Read one comparison CSV and compute skill metrics.
@@ -162,11 +208,34 @@ def compute_metrics_for_file(
         ``"notide"`` and/or ``"tide"``.  Default (``None``) computes both.
         Use ``{"notide"}`` for de-tided validation modes where comparing
         against ``model_eta_tide_m`` would be physically inconsistent.
+    demean : bool, default True
+        If True, subtract the long-term mean from both obs and model series
+        before computing RMSE, bias, and Pearson r. This removes the chart
+        datum offset and focuses the metrics on variability. Statistics
+        (obs_mean_m, model_*_mean_m) are computed BEFORE demeaning.
 
     Returns
     -------
     dict or None
         Metrics row, or None if the file is empty / unreadable.
+    
+    Notes
+    -----
+    **Methodological rationale for demeaning:**
+    
+    Tide gauges use chart datum as their reference level (typically 1.5–3 m
+    above mean sea level), while ocean models use approximately mean sea level.
+    Without demeaning, RMSE and bias are dominated by this constant offset,
+    which has no physical meaning for storm-surge validation.
+    
+    By subtracting the long-term mean from each series independently, we:
+    1. Remove the reference level difference
+    2. Focus metrics on the agreement of VARIABILITY (storm-surge signal)
+    3. Make RMSE interpretable as the typical error in surge amplitude
+    4. Make Pearson r measure the timing/phase agreement of surge events
+    
+    The raw means are still reported in obs_mean_m and model_*_mean_m for
+    reference and provenance.
     """
     if targets is None:
         targets = {"notide", "tide"}
@@ -217,7 +286,8 @@ def compute_metrics_for_file(
         logger.debug("  Too few valid samples (%d) for %s", n_valid, csv_path.stem)
         return nan_row
 
-    obs = df_good["sea_level_obs_m"].to_numpy(dtype=float)
+    # Get raw obs array (for statistics BEFORE demeaning)
+    obs_raw = df_good["sea_level_obs_m"].to_numpy(dtype=float)
 
     row: dict = {}
     for col in _META_COLS:
@@ -225,20 +295,24 @@ def compute_metrics_for_file(
     row.update({
         "n_total": n_total,
         "n_valid": n_valid,
-        "obs_mean_m": float(np.mean(obs)),
-        "obs_std_m":  float(np.std(obs)),
-        "obs_max_m":  float(np.max(np.abs(obs))),
+        "obs_mean_m": float(np.mean(obs_raw)),  # raw mean (before demeaning)
+        "obs_std_m":  float(np.std(obs_raw)),
+        "obs_max_m":  float(np.max(np.abs(obs_raw))),
     })
+    
+    # Apply demeaning for metrics computation
+    obs = _demean(obs_raw) if demean else obs_raw
 
     # ---- notide metrics -------------------------------------------------------
     if do_notide and "model_eta_notide_m" in df_good.columns:
-        notide = df_good["model_eta_notide_m"].to_numpy(dtype=float)
+        notide_raw = df_good["model_eta_notide_m"].to_numpy(dtype=float)
+        notide = _demean(notide_raw) if demean else notide_raw
         row.update({
-            "model_notide_mean_m": float(np.mean(notide)),
-            "model_notide_std_m":  float(np.std(notide)),
-            "model_notide_max_m":  float(np.max(np.abs(notide))),
-            "rmse_notide":         _rmse(obs, notide),
-            "bias_notide":         _bias(obs, notide),
+            "model_notide_mean_m": float(np.mean(notide_raw)),  # raw mean
+            "model_notide_std_m":  float(np.std(notide_raw)),
+            "model_notide_max_m":  float(np.max(np.abs(notide_raw))),
+            "rmse_notide":         _rmse(obs, notide),  # computed on demeaned
+            "bias_notide":         _bias(obs, notide),  # computed on demeaned
             "pearson_r_notide":    _pearson_r(obs, notide),
         })
     else:
@@ -250,13 +324,14 @@ def compute_metrics_for_file(
 
     # ---- tide metrics ---------------------------------------------------------
     if do_tide and "model_eta_tide_m" in df_good.columns:
-        tide = df_good["model_eta_tide_m"].to_numpy(dtype=float)
+        tide_raw = df_good["model_eta_tide_m"].to_numpy(dtype=float)
+        tide = _demean(tide_raw) if demean else tide_raw
         row.update({
-            "model_tide_mean_m":   float(np.mean(tide)),
-            "model_tide_std_m":    float(np.std(tide)),
-            "model_tide_max_m":    float(np.max(np.abs(tide))),
-            "rmse_tide":           _rmse(obs, tide),
-            "bias_tide":           _bias(obs, tide),
+            "model_tide_mean_m":   float(np.mean(tide_raw)),  # raw mean
+            "model_tide_std_m":    float(np.std(tide_raw)),
+            "model_tide_max_m":    float(np.max(np.abs(tide_raw))),
+            "rmse_tide":           _rmse(obs, tide),  # computed on demeaned
+            "bias_tide":           _bias(obs, tide),  # computed on demeaned
             "pearson_r_tide":      _pearson_r(obs, tide),
         })
     else:
@@ -308,7 +383,11 @@ def main() -> None:
     if invalid:
         logger.error("Unknown --targets value(s): %s.  Use 'notide', 'tide', or both.", invalid)
         sys.exit(1)
+    
+    # Demeaning setting
+    demean = not args.no_demean
     logger.info("Targets: %s", sorted(targets_set))
+    logger.info("Demeaning: %s", "ENABLED (default)" if demean else "DISABLED (--no-demean)")
     logger.info("Computing metrics for %d stations …", len(csv_files))
 
     rows: list[dict] = []
@@ -316,7 +395,7 @@ def main() -> None:
     n_fail = 0
 
     for i, csv_path in enumerate(csv_files, 1):
-        row = compute_metrics_for_file(csv_path, targets=targets_set)
+        row = compute_metrics_for_file(csv_path, targets=targets_set, demean=demean)
         if row is not None:
             rows.append(row)
             n_ok += 1

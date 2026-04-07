@@ -63,15 +63,35 @@ Therefore, comparing `obs_detided vs POM_tide_detided` is algebraically equivale
 to comparing `obs_detided vs POM_notide`. This justifies why the pipeline does not
 need a separate "POM tide detided" product — the existing comparisons are sufficient.
 
+### Demeaning preprocessing
+
+Before computing skill metrics, the long-term mean is subtracted from both
+observations and model series independently:
+
+```
+obs_demeaned(t) = obs(t) − mean(obs)
+model_demeaned(t) = model(t) − mean(model)
+```
+
+**Rationale:**
+- Tide gauges use chart datum as reference (typically 1.5–3 m above MSL)
+- Ocean models use approximately mean sea level as reference (~0 m)
+- Without demeaning, RMSE and bias would be dominated by this constant offset
+- After demeaning, metrics focus on **variability agreement** (storm-surge amplitude
+  and timing) rather than absolute levels
+
+The raw means are preserved in `obs_mean_m` and `model_*_mean_m` for reference.
+
 ### Skill metrics
 
-For each station, the following are computed on hourly pairs passing QC:
+For each station, the following are computed on hourly pairs passing QC,
+**after demeaning** both series:
 
-| Metric | Formula | Unit |
-|--------|---------|------|
-| RMSE | √( mean[(obs − model)²] ) | m |
-| Bias | mean(model − obs) | m |
-| Pearson r | cov(obs, model) / (σ_obs · σ_model) | — |
+| Metric | Formula | Interpretation after demeaning |
+|--------|---------|-------------------------------|
+| RMSE | √( mean[(obs − model)²] ) | Error in surge amplitude (m) |
+| Bias | mean(model − obs) | Systematic over/underestimation (m) |
+| Pearson r | cov(obs, model) / (σ_obs · σ_model) | Phase/timing agreement |
 
 QC filter applied: `gesla_qc_flag == 1` AND `gesla_use_flag == 1` (GESLA-4 recommended flags).
 Minimum 10 valid co-located samples required; otherwise all metrics are set to NaN.
@@ -272,11 +292,15 @@ figures/validation/
 | godin_tide | 467 | 1.53 | −1.52 | 0.319 |
 | fes2022_tide | 233 | 2.36 | −2.35 | −0.040 |
 
-Note: All RMSE and bias values are dominated by the chart datum offset (~1.5–3 m
-above mean sea level) inherent in the GESLA-4 observation reference.  This is
-expected: tidal filters remove the oscillating tidal signal but preserve the mean
-level. Metrics should be interpreted as relative comparisons between modes, not as
-absolute surge skill scores.
+**Note (2026-04-06):** The above metrics were computed WITHOUT demeaning (before the
+methodological update). They are dominated by the chart datum offset (~1.5–3 m above
+mean sea level). **To obtain meaningful surge skill metrics, re-run the pipeline with
+the updated `compute_station_metrics.py` which now applies demeaning by default.**
+
+After re-running with demeaning:
+- RMSE will represent error in surge **variability** (expected: 0.05–0.20 m typical)
+- Bias will represent systematic over/underestimation of surge amplitude
+- Pearson r will remain similar (demeaning does not affect correlation)
 
 **[PRELIMINARY] Key patterns:**
 
@@ -340,7 +364,7 @@ inspection of the station-map figures.
 
 - [ ] Expand FES2022 coverage to global domain (download full FES2022b constants)
 - [ ] Investigate the negative Pearson r in fes2022_tide mode (phase error analysis)
-- [ ] Subtract chart datum offset from all obs before computing metrics (mean-corrected validation)
+- [x] ~~Subtract chart datum offset from all obs before computing metrics (mean-corrected validation)~~ — **DONE**: Demeaning now applied by default in `compute_station_metrics.py`
 - [ ] Analyse spatial patterns of godin_notide RMSE and bias (regional clusters)
 - [ ] Seasonal stratification of skill scores (DJF/MAM/JJA/SON)
 - [ ] Case-study validation for specific extreme surge events (e.g., 2016–2018 cyclones)

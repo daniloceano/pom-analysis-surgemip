@@ -11,10 +11,7 @@ Outputs (written to site/public/data/)
   station_metrics.json   – unified per-station metrics for all modes
                            (used to populate the map and summary cards)
   ts/<stn>.json          – per-station daily-mean time series
-                           Always contains raw obs + POM_tide + POM_notide.
-                           Independent of validation mode: the chart shows
-                           the same signals regardless of which mode is
-                           selected in the UI.
+                           Preprocessed for storm-surge comparison.
 
 Station metrics JSON structure
 ------------------------------
@@ -44,18 +41,35 @@ Time series JSON structure
   {
     "station_id": "santos-540a-bra-uhslc",
     "dates":  ["2013-01-01", ...],
-    "obs":    [0.12, ...],       <- raw GESLA obs (with tidal signal, m)
-    "tide":   [0.15, ...],       <- POM_tide daily mean (m)
-    "notide": [0.05, ...]        <- POM_notide daily mean (surge reference, m)
+    "obs":    [0.02, ...],       <- GESLA obs: Godin-filtered + demeaned (m)
+    "tide":   [0.01, ...],       <- POM_tide: Godin-filtered + demeaned (m)
+    "notide": [-0.01, ...]       <- POM_notide: demeaned only (m)
   }
 
-Why raw obs + POM_tide?
------------------------
-The primary time-series visualisation always shows the raw (un-detided)
-observation alongside POM_tide.  Both signals include the astronomical tidal
-component, making them visually comparable on the same y-axis.
-Validation metrics (RMSE, bias, Pearson r) from the detided modes are shown
-separately in the station card.
+Methodological preprocessing for time series
+--------------------------------------------
+The time series are preprocessed to focus on storm-surge variability:
+
+1. **GESLA observations (obs):**
+   - Apply Godin (1972) filter (24h + 24h + 25h running means) to remove
+     the astronomical tidal signal
+   - Subtract the long-term mean to remove chart datum offset
+
+2. **POM_tide:**
+   - Apply Godin filter to remove the astronomical tidal component
+   - Subtract the long-term mean
+
+3. **POM_notide:**
+   - NO Godin filter (already meteorological-only, no tide)
+   - Subtract the long-term mean to remove model reference level offset
+
+**Rationale:**
+- Tide gauges use chart datum (typically ~1.5–3 m above mean sea level)
+- Models use mean sea level as reference (approximately zero)
+- Removing the long-term mean equalizes these reference levels
+- Godin filter removes tides from obs and POM_tide, making them
+  comparable to POM_notide
+- The resulting series focus on meteorological/storm-surge variability
 
 Usage
 -----
@@ -254,7 +268,40 @@ def build_station_metrics_json(
 
 
 # ---------------------------------------------------------------------------
-# Time series JSON  (always raw obs + POM_tide + POM_notide)
+# Godin filter for time series pre-processing
+# ---------------------------------------------------------------------------
+
+def _godin_filter(series: pd.Series, min_periods: int = 1) -> pd.Series:
+    """
+    Apply the Godin (1972) low-pass filter: 24h + 24h + 25h running means.
+    
+    This removes the astronomical tidal signal (periods < ~30h) from the
+    time series, preserving only the subtidal (storm surge) variability.
+    """
+    if series.empty:
+        return series.copy()
+    s1 = series.rolling(window=24, center=True, min_periods=min_periods).mean()
+    s2 = s1.rolling(window=24, center=True, min_periods=min_periods).mean()
+    s3 = s2.rolling(window=25, center=True, min_periods=min_periods).mean()
+    return s3
+
+
+def _demean(series: pd.Series) -> pd.Series:
+    """
+    Remove the long-term mean from a time series.
+    
+    This removes the chart datum / reference level offset, making series
+    from different sources (tide gauges, models) comparable in terms of
+    variability around their respective mean levels.
+    """
+    mean_val = series.mean()
+    if pd.isna(mean_val):
+        return series.copy()
+    return series - mean_val
+
+
+# ---------------------------------------------------------------------------
+# Time series JSON  (processed: Godin + demeaned for surge comparison)
 # ---------------------------------------------------------------------------
 
 def _load_ts(
@@ -263,12 +310,28 @@ def _load_ts(
 ) -> dict | None:
     """
     Load the raw_tide comparison CSV for one station and build the TS dict.
-
-    The time series JSON ALWAYS uses the raw (un-detided) GESLA observation
-    alongside POM_tide and POM_notide.  This makes the chart independent of
-    the validation mode selector: users see the same raw comparison regardless
-    of which detiding method they choose for the metric maps.
-
+    
+    **Methodological preprocessing applied:**
+    
+    1. **GESLA observations (obs):**
+       - Apply Godin filter (removes astronomical tide)
+       - Subtract long-term mean (removes chart datum offset)
+    
+    2. **POM_tide:**
+       - Apply Godin filter (removes astronomical tide from tidal run)
+       - Subtract long-term mean
+    
+    3. **POM_notide:**
+       - NO Godin filter (already meteorological-only, no tide to remove)
+       - Subtract long-term mean (removes model reference level offset)
+    
+    **Rationale:**
+    - Tide gauges and models have different reference levels (chart datum vs
+      model mean sea level). Removing the long-term mean equalizes these levels.
+    - Godin filter removes the tidal signal from obs and POM_tide, making them
+      comparable to the storm-surge-only POM_notide.
+    - The resulting series focus on meteorological/storm-surge variability.
+    
     Returns
     -------
     dict or None
@@ -294,8 +357,26 @@ def _load_ts(
     if "model_eta_tide_m"   in df.columns: keep.append("model_eta_tide_m")
     if "model_eta_notide_m" in df.columns: keep.append("model_eta_notide_m")
     df = df[[c for c in keep if c in df.columns]].copy()
+    
+    # -------------------------------------------------------------------------
+    # METHODOLOGICAL PREPROCESSING
+    # -------------------------------------------------------------------------
+    
+    # 1. GESLA obs: apply Godin filter then demean
+    if "sea_level_obs_m" in df.columns:
+        obs_godin = _godin_filter(df["sea_level_obs_m"])
+        df["sea_level_obs_m"] = _demean(obs_godin)
+    
+    # 2. POM_tide: apply Godin filter then demean
+    if "model_eta_tide_m" in df.columns:
+        tide_godin = _godin_filter(df["model_eta_tide_m"])
+        df["model_eta_tide_m"] = _demean(tide_godin)
+    
+    # 3. POM_notide: only demean (no Godin — already meteorological)
+    if "model_eta_notide_m" in df.columns:
+        df["model_eta_notide_m"] = _demean(df["model_eta_notide_m"])
 
-    # Daily means
+    # Daily means (applied AFTER preprocessing)
     daily = df.resample("1D").mean()
 
     result: dict = {

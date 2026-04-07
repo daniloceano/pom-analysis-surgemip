@@ -5,6 +5,26 @@ Each subdirectory corresponds to one observation treatment + model comparison pa
 
 ---
 
+## Preprocessing for validation metrics
+
+**All validation metrics (RMSE, bias, Pearson r) are computed on demeaned series.**
+
+Before computing metrics, the long-term mean is subtracted from both observations and
+model series independently. This is critical because:
+
+- Tide gauges use chart datum (typically 1.5–3 m above mean sea level)
+- Models use approximately mean sea level as reference (~0 m)
+- Without demeaning, RMSE/bias would be dominated by this constant datum offset
+
+**After demeaning:**
+- RMSE measures error in **variability** (storm-surge amplitude)
+- Bias measures systematic over/under-estimation of surge variability
+- Pearson r measures phase/timing agreement of surge events
+
+The raw means are still reported in `obs_mean_m` and `model_*_mean_m` for reference.
+
+---
+
 ## Conceptual framework
 
 The validation distinguishes three contexts:
@@ -12,8 +32,8 @@ The validation distinguishes three contexts:
 | Context | Obs treatment | Model target | Directory | Purpose |
 |---------|--------------|--------------|-----------|---------|
 | Descriptive | raw (with tide) | POM tide | `raw_tide/` | Tidal characterisation |
-| Surge validation | Godin-detided | POM no-tide | `godin_notide/` | Surge skill metrics |
-| Surge validation | FES2022-detided | POM no-tide | `fes2022_notide/` | Surge skill metrics |
+| Surge validation | Godin-detided + demeaned | POM no-tide (demeaned) | `godin_notide/` | Surge skill metrics |
+| Surge validation | FES2022-detided + demeaned | POM no-tide (demeaned) | `fes2022_notide/` | Surge skill metrics |
 
 **Key rule:** comparing detided observations against POM no-tide gives meaningful
 surge skill scores (RMSE, bias, Pearson r). Comparing raw observations (with tide)
@@ -33,6 +53,8 @@ the POM tide run uses FES2022 harmonic forcing. Therefore, comparing
 **File:** `raw_tide/station_metrics.csv`
 
 **Observation treatment:** none — raw GESLA sea level (includes astronomical tide)
+
+**Preprocessing:** Demeaning applied to both obs and model before metrics.
 
 **Model targets:**
 - `rmse_notide`, `bias_notide`, `pearson_r_notide` → obs_raw vs `model_eta_notide`
@@ -60,11 +82,13 @@ python scripts/pipeline/run_gesla_validation_pipeline.py --mode raw_tide --force
 - Removes tidal periods shorter than ~30 h
 - Requires hourly (or coarser) data — sub-hourly stations skipped
 
+**Preprocessing:** Demeaning applied to both Godin-filtered obs and model_notide.
+
 **Model target:** `model_eta_notide` (POM meteorological-only run, no tidal forcing)
 
 **Metrics:** `rmse_notide`, `bias_notide`, `pearson_r_notide`
 ✓ These are proper **surge validation metrics** — both obs and model represent
-the subtidal (non-tidal) sea level.
+the subtidal (non-tidal) sea level, and the constant datum offset is removed.
 
 **Station count:** 467 / 515 (48 stations with sub-hourly data excluded)
 
@@ -85,10 +109,13 @@ python scripts/pipeline/run_gesla_validation_pipeline.py \
 - Predicted astronomical tide subtracted from raw GESLA observations
 - Valid for any temporal resolution; FES2022 coverage may limit available stations
 
+**Preprocessing:** Demeaning applied to both FES2022-detided obs and model_notide.
+
 **Model target:** `model_eta_notide` (POM meteorological-only run, no tidal forcing)
 
 **Metrics:** `rmse_notide`, `bias_notide`, `pearson_r_notide`
-✓ These are proper **surge validation metrics** — tidal signal removed from obs.
+✓ These are proper **surge validation metrics** — tidal signal removed from obs,
+and the constant datum offset is removed via demeaning.
 
 **Station count:** 233 / 515 (limited by FES2022 regional coverage)
 
@@ -113,8 +140,8 @@ python scripts/pipeline/run_gesla_validation_pipeline.py \
 | `distance_km` | Haversine distance station → grid point |
 | `n_total` | Total overlapping hourly records (2013–2018) |
 | `n_valid` | Records passing QC flag = 1 AND use flag = 1 |
-| `obs_mean_m`, `obs_std_m`, `obs_max_m` | Observation statistics |
-| `model_notide_mean_m`, …_std_m, …_max_m | POM no-tide statistics |
-| `rmse_notide`, `bias_notide`, `pearson_r_notide` | Obs vs POM no-tide skill |
+| `obs_mean_m`, `obs_std_m`, `obs_max_m` | Observation statistics (raw, before demeaning) |
+| `model_notide_mean_m`, …_std_m, …_max_m | POM no-tide statistics (raw, before demeaning) |
+| `rmse_notide`, `bias_notide`, `pearson_r_notide` | Obs vs POM no-tide skill (computed on demeaned series) |
 | `model_tide_mean_m`, …_std_m, …_max_m` | POM tide statistics (raw_tide only) |
-| `rmse_tide`, `bias_tide`, `pearson_r_tide` | Obs vs POM tide skill (raw_tide only) |
+| `rmse_tide`, `bias_tide`, `pearson_r_tide` | Obs vs POM tide skill (raw_tide only, computed on demeaned series) |

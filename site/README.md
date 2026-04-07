@@ -6,10 +6,10 @@ storm-surge outputs against GESLA-4 tide-gauge observations (2013–2018).
 ## Features
 
 - **Interactive global map** — stations coloured by any validation metric (RMSE, bias, Pearson r, etc.)
-- **Observation treatment selector** — switch between Raw (descriptive), Godin, and FES2022 (surge validation)
+- **Observation treatment selector** — switch between Godin and FES2022 detiding modes
 - **Station selection** — click any station on the map to inspect it
-- **Time series chart** — daily-mean time series (obs + model) with Plotly.js zoom/pan/rangeslider
-- **Metrics card** — per-station skill scores with scientific context (descriptive vs. validation)
+- **Time series chart** — daily-mean storm-surge anomaly (preprocessed for comparison)
+- **Metrics card** — per-station skill scores with scientific context
 
 ---
 
@@ -31,14 +31,30 @@ python scripts/pipeline/prepare_site_data.py --force --skip-ts
 Output written to `site/public/data/`:
 ```
 station_metrics.json     ← unified metrics for all validation modes (map data)
-ts/<station_id>.json     ← per-station time series (raw obs + POM_tide + POM_notide)
+ts/<station_id>.json     ← per-station time series (preprocessed for comparison)
 ```
 
-The time series JSON always contains the raw observation plus both POM outputs (tide and
-notide), making it independent of the validation mode selector. This allows the chart to
-show the same comparison regardless of which detiding method is active in the UI.
-
 Only modes with an existing `results/validation/*/station_metrics.csv` appear in the site.
+
+---
+
+## Time series preprocessing
+
+The time series JSON files are **preprocessed** to focus on storm-surge variability:
+
+| Series | Treatment | Rationale |
+|--------|-----------|-----------|
+| **GESLA obs** | Godin filter + demeaned | Remove astronomical tide and chart datum offset |
+| **POM_tide** | Godin filter + demeaned | Remove astronomical tide and model reference level |
+| **POM_notide** | Demeaned only | Already meteorological-only; remove model reference level |
+
+**Godin filter:** Three-pass running mean (24h + 24h + 25h) that removes tidal periods < ~30h.
+
+**Demeaning:** Subtracting the long-term mean removes the reference level offset between
+tide gauges (chart datum, typically 1.5–3 m above MSL) and model (approximately 0 m).
+
+After preprocessing, all three series represent **storm-surge anomalies** relative to their
+respective mean levels, making them directly comparable.
 
 ---
 
@@ -123,12 +139,11 @@ of `.gitignore` or git state.
 
 | Button | Internal key | Obs treatment | Model target | Context |
 |--------|-------------|--------------|--------------|---------|
-| Raw | `raw` | none (obs with tide) | POM tide | Descriptive only |
-| Godin | `godin_filter` | Godin (1972) low-pass filter | POM no-tide | Surge validation ✓ |
-| FES2022 | `minus_fes_tide` | FES2022 harmonic subtraction | POM no-tide | Surge validation ✓ |
+| Godin | `godin_notide` | Godin (1972) low-pass filter | POM no-tide | Surge validation ✓ |
+| FES2022 | `fes2022_notide` | FES2022 harmonic subtraction | POM no-tide | Surge validation ✓ |
 
-**Important:** in Raw mode, `rmse_notide` (obs_raw vs POM no-tide) is dominated by the
-tidal signal in obs and is NOT a surge validation metric. The site displays `rmse_tide`
-(obs_raw vs POM tide) as the primary metric in Raw mode.
+**Note:** The time series chart always shows the same preprocessed signals (Godin-filtered
+and demeaned obs, Godin-filtered and demeaned POM_tide, demeaned POM_notide). The mode
+selector only affects the station metrics displayed in the map and station card.
 
 See `results/validation/README.md` for a detailed description of each comparison type.

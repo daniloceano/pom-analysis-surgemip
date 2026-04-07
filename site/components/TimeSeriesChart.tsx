@@ -5,15 +5,19 @@
  * Plotly.js time series for the selected GESLA station.
  * Loaded via dynamic({ ssr: false }) in page.tsx.
  *
- * Always shows the SAME three traces regardless of the validation mode:
+ * Shows preprocessed time series for storm-surge comparison:
  *
- *   obs   — raw GESLA observation (with tidal signal)
- *   tide  — POM_tide (surge + tidal signal)
- *   notide— POM_notide (storm surge only, reference)
+ *   obs    — GESLA observation (Godin-filtered + demeaned)
+ *   tide   — POM_tide (Godin-filtered + demeaned)
+ *   notide — POM_notide (demeaned only, no Godin — already meteorological)
+ *
+ * **Methodological preprocessing:**
+ * - Godin filter removes astronomical tidal signal (periods < ~30h)
+ * - Demeaning removes the long-term mean (chart datum / reference level offset)
+ * - This makes all three series comparable in terms of storm-surge variability
  *
  * The validation mode selector only affects the metric maps and station
- * card metrics.  The primary time-series view is always obs vs POM_tide
- * so that both signals are on comparable scales (both include the tide).
+ * card metrics — the time series view shows the same preprocessed signals.
  */
 
 import { useEffect, useState } from "react";
@@ -81,7 +85,7 @@ export default function TimeSeriesChart({ station }: Props) {
     {
       x: tsData.dates,
       y: tsData.obs,
-      name: "GESLA obs (raw)",
+      name: "GESLA (Godin + demeaned)",
       type: "scatter",
       mode: "lines",
       line: { color: "#374151", width: 1.5 },
@@ -93,7 +97,7 @@ export default function TimeSeriesChart({ station }: Props) {
     traces.push({
       x: tsData.dates,
       y: tsData.tide,
-      name: "POM tide",
+      name: "POM tide (Godin + demeaned)",
       type: "scatter",
       mode: "lines",
       line: { color: "#0891b2", width: 1.5, dash: "dash" },
@@ -105,7 +109,7 @@ export default function TimeSeriesChart({ station }: Props) {
     traces.push({
       x: tsData.dates,
       y: tsData.notide,
-      name: "POM no-tide (surge ref.)",
+      name: "POM no-tide (demeaned)",
       type: "scatter",
       mode: "lines",
       line: { color: "#94a3b8", width: 1.0, dash: "dot" },
@@ -113,7 +117,7 @@ export default function TimeSeriesChart({ station }: Props) {
     });
   }
 
-  const title = `${station.name} · daily mean 2013–2018`;
+  const title = `${station.name} · storm-surge anomaly · daily mean 2013–2018`;
 
   const layout = {
     title: { text: title, font: { size: 11, color: "#374151" }, x: 0.01, xanchor: "left" },
@@ -127,7 +131,7 @@ export default function TimeSeriesChart({ station }: Props) {
       rangeslider: { visible: true, thickness: 0.05 },
     },
     yaxis: {
-      title: { text: "Sea level [m]", font: { size: 10 } },
+      title: { text: "Sea level anomaly [m]", font: { size: 10 } },
       showgrid: true,
       gridcolor: "#e2e8f0",
       tickfont: { size: 9 },
